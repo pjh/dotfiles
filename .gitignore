@@ -20,6 +20,7 @@ push
 stamp-h1
 
 # app-specific
-skeleton
-skeleton*.tar.gz
-skeleton-config.h*
+dbfs
+dbfs-config.h*
+
+fuse-db-*.tar.gz

@@ -56,6 +56,8 @@ dnl autoconf output generation
 dnl --------------------------
 
 AM_PATH_GLIB_2_0(2.0.0)
+AM_PATH_GNET_2_0(2.0.7)
+PKG_CHECK_MODULES([FUSE], fuse)
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
