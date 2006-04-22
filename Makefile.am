@@ -4,10 +4,10 @@
 
 INCLUDES	= @GLIB_CFLAGS@
 
-sbin_PROGRAMS	= skeleton
+sbin_PROGRAMS	= dbfs
 
-skeleton_SOURCES = skeleton.c
-skeleton_LDADD	= @GLIB_LIBS@
+dbfs_SOURCES	= dbfs.c
+dbfs_LDADD	= @GLIB_LIBS@
 
 EXTRA_DIST	= autogen.sh
 
