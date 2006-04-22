@@ -43,7 +43,6 @@ dnl -----------------------------
 dnl Checks for required libraries
 dnl -----------------------------
 AC_CHECK_LIB(db-4.3, db_create, DB_LIBS=-ldb-4.3, exit 1)
-AC_CHECK_LIB(crypto, SHA1_Init, CRYPTO_LIBS=-lcrypto, exit 1)
 
 dnl -------------------------------------
 dnl Checks for optional library functions
@@ -62,7 +61,6 @@ AM_PATH_GNET_2_0(2.0.7)
 PKG_CHECK_MODULES([FUSE], fuse)
 
 AC_SUBST(DB_LIBS)
-AC_SUBST(CRYPTO_LIBS)
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
