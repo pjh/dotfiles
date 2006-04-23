@@ -21,6 +21,7 @@ stamp-h1
 
 # app-specific
 ndbfs
+dbfs
 dbfs-config.h*
 
 fuse-db-*.tar.gz
