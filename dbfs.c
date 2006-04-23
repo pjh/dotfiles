@@ -13,8 +13,6 @@
 #include <db.h>
 #include "dbfs.h"
 
-static const char *hello_str = "Hello World!\n";
-
 struct dbfs_inode {
 	unsigned int		n_extents;
 	struct dbfs_raw_inode	raw_inode;
@@ -173,6 +171,31 @@ static int dbfs_lookup(guint64 parent, const char *name, guint64 *ino)
 	return rc;
 }
 
+static int dbfs_unlink(guint64 parent, const char *name)
+{
+	struct dbfs_inode *ino;
+	guint64 ino_n;
+	int rc;
+
+	rc = dbfs_lookup(parent, name, &ino_n);
+	if (rc)
+		goto err_out;
+
+	rc = dbfs_read_inode(ino_n, &ino);
+	if (rc)
+		goto err_out;
+
+	/* FIXME stopped working here...
+
+	 * delete dir entry
+	 * decrement n_links
+	 * if n_links==0, delete inode
+	 */
+
+err_out:
+	return 0; /* FIXME */
+}
+
 static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 			     struct fuse_file_info *fi)
 {
@@ -303,6 +326,22 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	free(b.p);
 }
 
+static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
+{
+	if ((de->namelen == 1) && (!memcmp(de->name, ".", 1)))
+		return 0;
+	if ((de->namelen == 2) && (!memcmp(de->name, "..", 2)))
+		return 0;
+	return ENOTEMPTY;
+}
+
+static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	int rc = dbfs_unlink(parent, name);
+	if (rc)
+		fuse_reply_err(req, rc);
+}
+
 static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	struct dbfs_inode *ino;
@@ -311,30 +350,40 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	DBT val;
 
 	rc = dbfs_lookup(parent, name, &ino_n);
-	if (rc) {
-		fuse_reply_err(req, rc);
-		return;
-	}
+	if (rc)
+		goto err_out;
 
 	rc = dbfs_read_inode(ino_n, &ino);
-	if (rc) {
-		fuse_reply_err(req, rc);
-		return;
-	}
+	if (rc)
+		goto err_out;
 	if (!S_ISDIR(ino->raw_inode.mode)) {
-		g_free(ino);
-		fuse_reply_err(req, ENOTDIR);
-		return;
+		rc = ENOTDIR;
+		goto err_out_free;
 	}
 
 	rc = dbfs_read_dir(parent, &val);
-	if (rc) {
-		g_free(ino);
-		fuse_reply_err(req, rc);
-		return;
-	}
+	if (rc)
+		goto err_out_free;
+
+	rc = dbfs_dir_foreach(val.data, dbfs_chk_empty, NULL);
+	free(val.data);
+
+	if (rc)
+		goto err_out_free;
+
+	rc = dbfs_unlink(parent, name);
+	if (rc)
+		goto err_out_free;
+
+	return;
+
+err_out_free:
+	g_free(ino);
+err_out:
+	fuse_reply_err(req, rc);
 }
 
+#if 0
 static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
 			  struct fuse_file_info *fi)
 {
@@ -346,6 +395,8 @@ static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
 		fuse_reply_open(req, fi);
 }
 
+static const char *hello_str = "Hello World!\n";
+
 static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 			  off_t off, struct fuse_file_info *fi)
 {
@@ -354,13 +405,13 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 	assert(ino == 2);
 	reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
 }
+#endif
 
 static struct fuse_lowlevel_ops dbfs_ops = {
 	.lookup		= dbfs_op_lookup,
 	.getattr	= dbfs_op_getattr,
+	.unlink		= dbfs_op_unlink,
 	.rmdir		= dbfs_op_rmdir,
-	.open		= hello_ll_open,
-	.read		= hello_ll_read,
 	.opendir	= dbfs_op_opendir,
 	.readdir	= dbfs_op_readdir,
 	.releasedir	= dbfs_op_releasedir,
