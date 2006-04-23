@@ -102,6 +102,28 @@ static int dbfs_read_dir(guint64 ino, DBT *val)
 	return rc;
 }
 
+static int dbfs_read_link(guint64 ino, DBT *val)
+{
+	DBT key;
+	char key_str[32];
+	int rc;
+
+	memset(&key, 0, sizeof(key));
+	memset(val, 0, sizeof(*val));
+
+	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
+
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	val->flags = DB_DBT_MALLOC;
+
+	rc = db_meta->get(db_meta, NULL, &key, val, 0);
+	if (rc == DB_NOTFOUND)
+		return -EINVAL;
+	return rc;
+}
+
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 
 static int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
@@ -227,6 +249,25 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	fuse_reply_attr(req, &st, 1.0);
 
 	g_free(ino);
+}
+
+static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
+{
+	int rc;
+	DBT val;
+	char *s;
+
+	rc = dbfs_read_link(ino, &val);
+	if (rc) {
+		fuse_reply_err(req, rc);
+		return;
+	}
+
+	s = g_strndup(val.data, val.size);
+	fuse_reply_readlink(req, s);
+	g_free(s);
+
+	free(val.data);
 }
 
 static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -410,6 +451,7 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 static struct fuse_lowlevel_ops dbfs_ops = {
 	.lookup		= dbfs_op_lookup,
 	.getattr	= dbfs_op_getattr,
+	.readlink	= dbfs_op_readlink,
 	.unlink		= dbfs_op_unlink,
 	.rmdir		= dbfs_op_rmdir,
 	.opendir	= dbfs_op_opendir,
