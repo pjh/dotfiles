@@ -1,10 +1,3 @@
-/*
-    FUSE: Filesystem in Userspace
-    Copyright (C) 2001-2006  Miklos Szeredi <miklos@szeredi.hu>
-
-    This program can be distributed under the terms of the GNU GPL.
-    See the file COPYING.
-*/
 
 #define FUSE_USE_VERSION 25
 
@@ -115,6 +108,27 @@ out:
 	return rc;
 }
 
+static int dfs_read(const char *path, char *buf, size_t size, off_t offset,
+		      struct fuse_file_info *fi)
+{
+	struct ndb_val *val = NULL;
+	char *nspath;
+	int rc = 0;
+
+	nspath = pprefix("/data", path);
+	rc = ndb_lookup(path, &val);
+	if (rc)
+		goto out;
+
+	rc = dfs_fill_data(buf, size, offset, val);
+
+	ndb_free(val);
+
+out:
+	g_free(nspath);
+	return rc;
+}
+
 static int dfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
@@ -134,27 +148,6 @@ static int dfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	filler(buf, "..", NULL, 0);
 
 	rc = dfs_fill_dir(filler, val);
-
-	ndb_free(val);
-
-out:
-	g_free(nspath);
-	return rc;
-}
-
-static int dfs_read(const char *path, char *buf, size_t size, off_t offset,
-		      struct fuse_file_info *fi)
-{
-	struct ndb_val *val = NULL;
-	char *nspath;
-	int rc = 0;
-
-	nspath = pprefix("/data", path);
-	rc = ndb_lookup(path, &val);
-	if (rc)
-		goto out;
-
-	rc = dfs_fill_data(buf, size, offset, val);
 
 	ndb_free(val);
 
