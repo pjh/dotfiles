@@ -20,7 +20,7 @@ push
 stamp-h1
 
 # app-specific
-dbfs
+ndbfs
 dbfs-config.h*
 
 fuse-db-*.tar.gz

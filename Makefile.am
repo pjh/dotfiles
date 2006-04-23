@@ -4,10 +4,10 @@
 
 INCLUDES	= @GNET_CFLAGS@ @FUSE_CFLAGS@
 
-sbin_PROGRAMS	= dbfs
+sbin_PROGRAMS	= ndbfs
 
-dbfs_SOURCES	= dbfs.c
-dbfs_LDADD	= @GNET_LIBS@ @FUSE_LIBS@
+ndbfs_SOURCES	= ndbfs.c
+ndbfs_LDADD	= @GNET_LIBS@ @FUSE_LIBS@
 
 EXTRA_DIST	= autogen.sh
 

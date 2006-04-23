@@ -19,7 +19,7 @@ dnl Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 AC_INIT(fuse-db, 0.1, [Jeff Garzik <jgarzik@pobox.com>])
 AC_PREREQ(2.52)
-AC_CONFIG_SRCDIR([dbfs.c])
+AC_CONFIG_SRCDIR([ndbfs.c])
 AM_INIT_AUTOMAKE([gnu])
 AC_CONFIG_HEADERS([dbfs-config.h])
 
