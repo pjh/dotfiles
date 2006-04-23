@@ -28,20 +28,26 @@ struct ndb_val {
 	unsigned int len;
 };
 
+static gchar *pprefix(const char *pfx, const char *path_in)
+{
+	gchar *path, *s;
+
+	path = g_strdup(path_in);
+	while ((*path) && (path[strlen(path) - 1] == '/'))
+		path[strlen(path) - 1] = 0;
+
+	s = g_strdup_printf("%s%s", pfx, path);
+
+	g_free(path);
+	return s;
+}
+
 static void ndb_free(struct ndb_val *val)
 {
 	/* TODO */
 }
 
 static int ndb_lookup(const char *path, struct ndb_val **val)
-{
-	/* TODO */
-	*val = NULL;
-	return -ENOMEM;
-}
-
-static int ndb_lookup_data(const char *path, size_t size, off_t offset,
-			   struct ndb_val **val)
 {
 	/* TODO */
 	*val = NULL;
@@ -60,6 +66,13 @@ static int dfs_fill_dir(fuse_fill_dir_t filler, struct ndb_val *val)
 	return -EIO;
 }
 
+static int dfs_fill_data(char *buf, size_t size, off_t offset,
+			 struct ndb_val *val)
+{
+	/* TODO */
+	return -EIO;
+}
+
 static int dfs_getattr(const char *path, struct stat *stbuf)
 {
 	int rc = -ENOENT;
@@ -68,12 +81,32 @@ static int dfs_getattr(const char *path, struct stat *stbuf)
 
 	memset(stbuf, 0, sizeof(struct stat));
 
-	nspath = g_strdup_printf("/meta/%s", path);
+	nspath = pprefix("/meta", path);
 	rc = ndb_lookup(nspath, &val);
 	if (rc)
 		goto out;
 
 	rc = dfs_fill_stat(stbuf, val);
+
+	ndb_free(val);
+
+out:
+	g_free(nspath);
+	return rc;
+}
+
+static int dfs_readlink(const char *path, char *buf, size_t size)
+{
+	int rc = -ENOENT;
+	struct ndb_val *val = NULL;
+	char *nspath;
+
+	nspath = pprefix("/symlink", path);
+	rc = ndb_lookup(nspath, &val);
+	if (rc)
+		goto out;
+
+	memcpy(buf, val->data, size < val->len ? size : val->len);
 
 	ndb_free(val);
 
@@ -89,7 +122,7 @@ static int dfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	char *nspath;
 	int rc;
 
-	nspath = g_strdup_printf("/dir/%s", path);
+	nspath = pprefix("/dir", path);
 	rc = ndb_lookup(nspath, &val);
 	if (rc) {
 		if (rc == -ENOENT)
@@ -113,19 +146,26 @@ static int dfs_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
 	struct ndb_val *val = NULL;
-	int rc;
+	char *nspath;
+	int rc = 0;
 
-	rc = ndb_lookup_data(path, size, offset, &val);
+	nspath = pprefix("/data", path);
+	rc = ndb_lookup(path, &val);
 	if (rc)
-		return rc;
+		goto out;
+
+	rc = dfs_fill_data(buf, size, offset, val);
 
 	ndb_free(val);
 
-	return 0;
+out:
+	g_free(nspath);
+	return rc;
 }
 
 static const struct fuse_operations dfs_ops = {
 	.getattr	= dfs_getattr,
+	.readlink	= dfs_readlink,
 	.read		= dfs_read,
 	.readdir	= dfs_readdir,
 };
