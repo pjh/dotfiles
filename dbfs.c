@@ -6,200 +6,131 @@
     See the file COPYING.
 */
 
-#include <fuse_lowlevel.h>
+#define FUSE_USE_VERSION 25
+
+#include <fuse.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <unistd.h>
-#include <assert.h>
-#include <db.h>
+#include <glib.h>
 
-static const char *hello_str = "Hello World!\n";
-static const char *hello_name = "hello";
+enum {
+	INO_SIZE		= 128,
+};
 
-static int hello_stat(fuse_ino_t ino, struct stat *stbuf)
+typedef struct {
+	char buf[INO_SIZE];
+} dfs_ino_t;
+
+struct ndb_val {
+	void *data;
+	unsigned int len;
+};
+
+static void ndb_free(struct ndb_val *val)
 {
-	stbuf->st_ino = ino;
-	switch (ino) {
-	case 1:
-		stbuf->st_mode = S_IFDIR | 0755;
-		stbuf->st_nlink = 2;
-		break;
+	/* TODO */
+}
 
-	case 2:
-		stbuf->st_mode = S_IFREG | 0444;
-		stbuf->st_nlink = 1;
-		stbuf->st_size = strlen(hello_str);
-		break;
+static int ndb_lookup(const char *path, struct ndb_val **val)
+{
+	/* TODO */
+	*val = NULL;
+	return -ENOMEM;
+}
 
-	default:
-		return -1;
+static int ndb_lookup_data(const char *path, size_t size, off_t offset,
+			   struct ndb_val **val)
+{
+	/* TODO */
+	*val = NULL;
+	return -ENOMEM;
+}
+
+static int dfs_fill_stat(struct stat *stbuf, struct ndb_val *val)
+{
+	/* TODO */
+	return -EIO;
+}
+
+static int dfs_fill_dir(fuse_fill_dir_t filler, struct ndb_val *val)
+{
+	/* TODO */
+	return -EIO;
+}
+
+static int dfs_getattr(const char *path, struct stat *stbuf)
+{
+	int rc = -ENOENT;
+	struct ndb_val *val = NULL;
+	char *nspath;
+
+	memset(stbuf, 0, sizeof(struct stat));
+
+	nspath = g_strdup_printf("/meta/%s", path);
+	rc = ndb_lookup(nspath, &val);
+	if (rc)
+		goto out;
+
+	rc = dfs_fill_stat(stbuf, val);
+
+	ndb_free(val);
+
+out:
+	g_free(nspath);
+	return rc;
+}
+
+static int dfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+			 off_t offset, struct fuse_file_info *fi)
+{
+	struct ndb_val *val = NULL;
+	char *nspath;
+	int rc;
+
+	nspath = g_strdup_printf("/dir/%s", path);
+	rc = ndb_lookup(nspath, &val);
+	if (rc) {
+		if (rc == -ENOENT)
+			rc = -ENOTDIR;
+		goto out;
 	}
+
+	filler(buf, ".", NULL, 0);
+	filler(buf, "..", NULL, 0);
+
+	rc = dfs_fill_dir(filler, val);
+
+	ndb_free(val);
+
+out:
+	g_free(nspath);
+	return rc;
+}
+
+static int dfs_read(const char *path, char *buf, size_t size, off_t offset,
+		      struct fuse_file_info *fi)
+{
+	struct ndb_val *val = NULL;
+	int rc;
+
+	rc = ndb_lookup_data(path, size, offset, &val);
+	if (rc)
+		return rc;
+
+	ndb_free(val);
+
 	return 0;
 }
 
-static void hello_ll_getattr(fuse_req_t req, fuse_ino_t ino,
-			     struct fuse_file_info *fi)
-{
-	struct stat stbuf;
-
-	(void)fi;
-
-	memset(&stbuf, 0, sizeof(stbuf));
-	if (hello_stat(ino, &stbuf) == -1)
-		fuse_reply_err(req, ENOENT);
-	else
-		fuse_reply_attr(req, &stbuf, 1.0);
-}
-
-static void hello_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
-{
-	struct fuse_entry_param e;
-
-	if (parent != 1 || strcmp(name, hello_name) != 0)
-		fuse_reply_err(req, ENOENT);
-	else {
-		memset(&e, 0, sizeof(e));
-		e.ino = 2;
-		e.attr_timeout = 1.0;
-		e.entry_timeout = 1.0;
-		hello_stat(e.ino, &e.attr);
-
-		fuse_reply_entry(req, &e);
-	}
-}
-
-struct dirbuf {
-	char *p;
-	size_t size;
+static const struct fuse_operations dfs_ops = {
+	.getattr	= dfs_getattr,
+	.read		= dfs_read,
+	.readdir	= dfs_readdir,
 };
-
-static void dirbuf_add(struct dirbuf *b, const char *name, fuse_ino_t ino)
-{
-	struct stat stbuf;
-	size_t oldsize = b->size;
-	b->size += fuse_dirent_size(strlen(name));
-	b->p = (char *)realloc(b->p, b->size);
-	memset(&stbuf, 0, sizeof(stbuf));
-	stbuf.st_ino = ino;
-	fuse_add_dirent(b->p + oldsize, name, &stbuf, b->size);
-}
-
-#define min(x, y) ((x) < (y) ? (x) : (y))
-
-static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
-			     off_t off, size_t maxsize)
-{
-	if (off < bufsize)
-		return fuse_reply_buf(req, buf + off,
-				      min(bufsize - off, maxsize));
-	else
-		return fuse_reply_buf(req, NULL, 0);
-}
-
-static void hello_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
-			     off_t off, struct fuse_file_info *fi)
-{
-	(void)fi;
-
-	if (ino != 1)
-		fuse_reply_err(req, ENOTDIR);
-	else {
-		struct dirbuf b;
-
-		memset(&b, 0, sizeof(b));
-		dirbuf_add(&b, ".", 1);
-		dirbuf_add(&b, "..", 1);
-		dirbuf_add(&b, hello_name, 2);
-		reply_buf_limited(req, b.p, b.size, off, size);
-		free(b.p);
-	}
-}
-
-static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
-			  struct fuse_file_info *fi)
-{
-	if (ino != 2)
-		fuse_reply_err(req, EISDIR);
-	else if ((fi->flags & 3) != O_RDONLY)
-		fuse_reply_err(req, EACCES);
-	else
-		fuse_reply_open(req, fi);
-}
-
-static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
-			  off_t off, struct fuse_file_info *fi)
-{
-	(void)fi;
-
-	assert(ino == 2);
-	reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
-}
-
-static const struct fuse_lowlevel_ops hello_ll_oper = {
-	.lookup		= hello_ll_lookup,
-	.getattr	= hello_ll_getattr,
-	.readdir	= hello_ll_readdir,
-	.open		= hello_ll_open,
-	.read		= hello_ll_read,
-};
-
-static void db_init(void)
-{
-	DB_ENV *env;
-	char *dbdir;
-	int rc;
-
-	dbdir = getenv("FUSE_DB_ENV");
-	if (!dbdir)
-		dbdir = "fs-data";
-
-	db_env_create(&env, 0);
-
-	rc = env->open(env, dbdir,
-		       DB_INIT_LOCK |
-		       DB_INIT_LOG |
-		       DB_INIT_MPOOL |
-		       DB_INIT_TXN |
-		       DB_RECOVER |
-		       DB_CREATE, 0);
-	if (rc)
-		abort();
-}
 
 int main(int argc, char *argv[])
 {
-	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
-	char *mountpoint;
-	int err = -1;
-	int fd;
-
-	db_init();
-
-	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 &&
-	    (fd = fuse_mount(mountpoint, &args)) != -1) {
-		struct fuse_session *se;
-
-		se = fuse_lowlevel_new(&args, &hello_ll_oper,
-				       sizeof(hello_ll_oper), NULL);
-		if (se != NULL) {
-			if (fuse_set_signal_handlers(se) != -1) {
-				struct fuse_chan *ch = fuse_kern_chan_new(fd);
-				if (ch != NULL) {
-					/* MAIN LOOP STARTS HERE */
-					fuse_session_add_chan(se, ch);
-					err = fuse_session_loop(se);
-				}
-				fuse_remove_signal_handlers(se);
-			}
-			fuse_session_destroy(se);
-		}
-		close(fd);
-	}
-	fuse_unmount(mountpoint);
-	fuse_opt_free_args(&args);
-
-	return err ? 1 : 0;
+	return fuse_main(argc, argv, &dfs_ops);
 }
