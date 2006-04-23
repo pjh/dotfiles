@@ -20,6 +20,12 @@ struct dbfs_inode {
 	struct dbfs_raw_inode	raw_inode;
 };
 
+struct dbfs_lookup_info {
+	const char	*name;
+	size_t		namelen;
+	guint64		*ino;
+};
+
 static DB_ENV *env;
 static DB *db_data;
 static DB *db_meta;
@@ -98,6 +104,75 @@ static int dbfs_read_dir(guint64 ino, DBT *val)
 	return rc;
 }
 
+typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
+
+static int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
+{
+	struct dbfs_dirent *de;
+	void *p;
+	int rc = 0;
+
+	p = dir;
+	while (1) {
+		de = p;
+		de->magic	= GUINT32_FROM_LE(de->magic);
+		de->namelen	= GUINT16_FROM_LE(de->namelen);
+		de->ino		= GUINT64_FROM_LE(de->ino);
+
+		g_assert (de->magic == DBFS_DE_MAGIC);
+		if (!de->namelen)
+			break;
+
+		rc = func(de, userdata);
+		if (rc)
+			break;
+
+		p += sizeof(struct dbfs_dirent) + de->namelen +
+		     (4 - (de->namelen & 0x3));
+	}
+
+	return rc;
+}
+
+static int dbfs_dir_cmp(struct dbfs_dirent *de, void *userdata)
+{
+	struct dbfs_lookup_info *li = userdata;
+
+	if ((li->namelen == de->namelen) &&
+	    (!memcmp(li->name, de->name, li->namelen))) {
+	    	*li->ino = de->ino;
+		return 1;
+	}
+
+	return 0;
+}
+
+static int dbfs_lookup(guint64 parent, const char *name, guint64 *ino)
+{
+	struct dbfs_lookup_info li;
+	size_t namelen = strlen(name);
+	DBT val;
+	int rc;
+
+	*ino = 0;
+
+	rc = dbfs_read_dir(parent, &val);
+	if (rc)
+		return rc;
+
+	li.name = name;
+	li.namelen = namelen;
+	li.ino = ino;
+	rc = dbfs_dir_foreach(val.data, dbfs_dir_cmp, &li);
+	if (rc)
+		rc = 0;
+	else
+		rc = -ENOENT;
+
+	free(val.data);
+	return rc;
+}
+
 static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 			     struct fuse_file_info *fi)
 {
@@ -133,52 +208,23 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 
 static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
-	struct dbfs_dirent *de;
-	DBT val;
+	struct fuse_entry_param e;
+	guint64 ino;
 	int rc;
-	void *p;
-	size_t namelen = strlen(name);
 
-	rc = dbfs_read_dir(parent, &val);
+	rc = dbfs_lookup(parent, name, &ino);
 	if (rc) {
 		fuse_reply_err(req, rc);
 		return;
 	}
 
-	p = val.data;
-	while (1) {
-		de = p;
-		de->magic	= GUINT32_FROM_LE(de->magic);
-		de->namelen	= GUINT16_FROM_LE(de->namelen);
-		de->ino		= GUINT64_FROM_LE(de->ino);
+	memset(&e, 0, sizeof(e));
 
-		g_assert (de->magic == DBFS_DE_MAGIC);
-		if (!de->namelen)
-			break;
+	e.ino = ino;
+	e.attr_timeout = 2.0;
+	e.entry_timeout = 2.0;
 
-		if ((namelen == de->namelen) &&
-		    (!memcmp(name, de->name, namelen))) {
-			struct fuse_entry_param e;
-
-			memset(&e, 0, sizeof(e));
-
-			e.ino = de->ino;
-			e.attr_timeout = 1.0;
-			e.entry_timeout = 1.0;
-
-			fuse_reply_entry(req, &e);
-
-			goto out;
-		}
-
-		p += sizeof(struct dbfs_dirent) + de->namelen +
-		     (4 - (de->namelen & 0x3));
-	}
-
-	fuse_reply_err(req, ENOENT);
-
-out:
-	free(val.data);
+	fuse_reply_entry(req, &e);
 }
 
 static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
@@ -233,37 +279,60 @@ static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
 		return fuse_reply_buf(req, NULL, 0);
 }
 
+static int dbfs_fill_dirbuf(struct dbfs_dirent *de, void *userdata)
+{
+	struct dirbuf *b = userdata;
+	char *s = g_strndup(de->name, de->namelen);
+	dirbuf_add(b, s, de->ino);
+	free(s);
+	return 0;
+}
+
 static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 			     off_t off, struct fuse_file_info *fi)
 {
 	struct dirbuf b;
-	struct dbfs_dirent *de;
 	void *p;
-	char *s;
-
-	memset(&b, 0, sizeof(b));
 
 	p = (void *) (unsigned long) fi->fh;
-	while (1) {
-		de = p;
-		de->magic	= GUINT32_FROM_LE(de->magic);
-		de->namelen	= GUINT16_FROM_LE(de->namelen);
-		de->ino		= GUINT64_FROM_LE(de->ino);
 
-		g_assert (de->magic == DBFS_DE_MAGIC);
-		if (!de->namelen)
-			break;
-
-		s = g_strndup(de->name, de->namelen);
-		dirbuf_add(&b, s, de->ino);
-		free(s);
-
-		p += sizeof(struct dbfs_dirent) + de->namelen +
-		     (4 - (de->namelen & 0x3));
-	}
+	memset(&b, 0, sizeof(b));
+	dbfs_dir_foreach(p, dbfs_fill_dirbuf, &b);
 
 	reply_buf_limited(req, b.p, b.size, off, size);
 	free(b.p);
+}
+
+static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	struct dbfs_inode *ino;
+	guint64 ino_n;
+	int rc;
+	DBT val;
+
+	rc = dbfs_lookup(parent, name, &ino_n);
+	if (rc) {
+		fuse_reply_err(req, rc);
+		return;
+	}
+
+	rc = dbfs_read_inode(ino_n, &ino);
+	if (rc) {
+		fuse_reply_err(req, rc);
+		return;
+	}
+	if (!S_ISDIR(ino->raw_inode.mode)) {
+		g_free(ino);
+		fuse_reply_err(req, ENOTDIR);
+		return;
+	}
+
+	rc = dbfs_read_dir(parent, &val);
+	if (rc) {
+		g_free(ino);
+		fuse_reply_err(req, rc);
+		return;
+	}
 }
 
 static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
@@ -286,9 +355,10 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 	reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
 }
 
-static struct fuse_lowlevel_ops hello_ll_oper = {
+static struct fuse_lowlevel_ops dbfs_ops = {
 	.lookup		= dbfs_op_lookup,
 	.getattr	= dbfs_op_getattr,
+	.rmdir		= dbfs_op_rmdir,
 	.open		= hello_ll_open,
 	.read		= hello_ll_read,
 	.opendir	= dbfs_op_opendir,
@@ -310,8 +380,8 @@ int main(int argc, char *argv[])
 	    (fd = fuse_mount(mountpoint, &args)) != -1) {
 		struct fuse_session *se;
 
-		se = fuse_lowlevel_new(&args, &hello_ll_oper,
-				       sizeof(hello_ll_oper), NULL);
+		se = fuse_lowlevel_new(&args, &dbfs_ops,
+				       sizeof(dbfs_ops), NULL);
 		if (se != NULL) {
 			if (fuse_set_signal_handlers(se) != -1) {
 				struct fuse_chan *ch = fuse_kern_chan_new(fd);
