@@ -9,43 +9,134 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <assert.h>
+#include <glib.h>
+#include <db.h>
 
 static const char *hello_str = "Hello World!\n";
 static const char *hello_name = "hello";
 
-static int hello_stat(fuse_ino_t ino, struct stat *stbuf)
+enum {
+	DBFS_BLK_ID_LEN		= 20,
+};
+
+typedef struct {
+	char		buf[DBFS_BLK_ID_LEN];
+} dbfs_blk_id_t;
+
+struct dbfs_extent {
+	dbfs_blk_id_t	id;
+	guint64		size;
+};
+
+struct dbfs_raw_inode {
+	guint64		ino;
+	guint32		mode;
+	guint32		nlink;
+	guint32		uid;
+	guint32		gid;
+	guint64		rdev;
+	guint64		size;
+	guint64		ctime;
+	guint64		atime;
+	guint64		mtime;
+	struct dbfs_extent blocks[0];
+};
+
+struct dbfs_inode {
+	unsigned int		n_extents;
+	struct dbfs_raw_inode	raw_inode;
+};
+
+static DB_ENV *env;
+static DB *db_data;
+static DB *db_meta;
+
+#define SWAP32(x) raw_ino->(x) = GUINT32_FROM_LE(raw_ino->(x))
+#define SWAP64(x) raw_ino->(x) = GUINT64_FROM_LE(raw_ino->(x))
+static int dbfs_read_inode(guint64 ino_n, struct dbfs_inode **ino_out)
 {
-	stbuf->st_ino = ino;
-	switch (ino) {
-	case 1:
-		stbuf->st_mode = S_IFDIR | 0755;
-		stbuf->st_nlink = 2;
-		break;
+	int rc;
+	DBT key, val;
+	char key_str[32];
+	struct dbfs_raw_inode *raw_ino;
+	struct dbfs_inode *ino;
+	size_t ex_sz, i;
 
-	case 2:
-		stbuf->st_mode = S_IFREG | 0444;
-		stbuf->st_nlink = 1;
-		stbuf->st_size = strlen(hello_str);
-		break;
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
 
-	default:
-		return -1;
-	}
+	sprintf(key_str, "/inode/%Lu", (unsigned long long) ino_n);
+
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	val.flags = DB_DBT_MALLOC;
+
+	rc = db_meta->get(db_meta, NULL, &key, &val, 0);
+	if (rc == DB_NOTFOUND)
+		return -ENOENT;
+	if (rc)
+		return rc;
+
+	raw_ino = val.data;
+	raw_ino->ino = GUINT64_FROM_LE(raw_ino->ino);
+	raw_ino->mode = GUINT32_FROM_LE(raw_ino->mode);
+	raw_ino->nlink = GUINT32_FROM_LE(raw_ino->nlink);
+	raw_ino->uid = GUINT32_FROM_LE(raw_ino->uid);
+	raw_ino->gid = GUINT32_FROM_LE(raw_ino->gid);
+	raw_ino->rdev = GUINT64_FROM_LE(raw_ino->rdev);
+	raw_ino->size = GUINT64_FROM_LE(raw_ino->size);
+	raw_ino->ctime = GUINT64_FROM_LE(raw_ino->ctime);
+	raw_ino->atime = GUINT64_FROM_LE(raw_ino->atime);
+	raw_ino->mtime = GUINT64_FROM_LE(raw_ino->mtime);
+
+	ex_sz = val.size - sizeof(struct dbfs_raw_inode);
+	i = sizeof(struct dbfs_inode) - sizeof(struct dbfs_raw_inode);
+
+	ino = g_malloc(i + ex_sz + sizeof(struct dbfs_raw_inode));
+	memcpy(&ino->raw_inode, raw_ino, val.size);
+	ino->n_extents = ex_sz / sizeof(struct dbfs_extent);
+
+	*ino_out = ino;
+
+	free(val.data);
+
 	return 0;
 }
+#undef SWAP32
+#undef SWAP64
 
-static void hello_ll_getattr(fuse_req_t req, fuse_ino_t ino,
+static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 			     struct fuse_file_info *fi)
 {
-	struct stat stbuf;
+	struct dbfs_inode *ino = NULL;
+	struct stat st;
+	int rc;
 
-	(void)fi;
-
-	memset(&stbuf, 0, sizeof(stbuf));
-	if (hello_stat(ino, &stbuf) == -1)
+	rc = dbfs_read_inode(ino_n, &ino);
+	if (rc) {
 		fuse_reply_err(req, ENOENT);
-	else
-		fuse_reply_attr(req, &stbuf, 1.0);
+		return;
+	}
+
+	memset(&st, 0, sizeof(st));
+	st.st_dev	= 1;
+	st.st_ino	= ino_n;
+	st.st_mode	= ino->raw_inode.mode;
+	st.st_nlink	= ino->raw_inode.nlink;
+	st.st_uid	= ino->raw_inode.uid;
+	st.st_gid	= ino->raw_inode.gid;
+	st.st_rdev	= ino->raw_inode.rdev;
+	st.st_size	= ino->raw_inode.size;
+	st.st_blksize	= 512;
+	st.st_blocks	= ino->raw_inode.size / 512;
+	st.st_atime	= ino->raw_inode.atime;
+	st.st_mtime	= ino->raw_inode.mtime;
+	st.st_ctime	= ino->raw_inode.ctime;
+
+	fuse_reply_attr(req, &st, 1.0);
+
+	g_free(ino);
 }
 
 static void hello_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -59,7 +150,6 @@ static void hello_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 		e.ino = 2;
 		e.attr_timeout = 1.0;
 		e.entry_timeout = 1.0;
-		hello_stat(e.ino, &e.attr);
 
 		fuse_reply_entry(req, &e);
 	}
@@ -133,11 +223,11 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 }
 
 static struct fuse_lowlevel_ops hello_ll_oper = {
-	.lookup = hello_ll_lookup,
-	.getattr = hello_ll_getattr,
-	.readdir = hello_ll_readdir,
-	.open = hello_ll_open,
-	.read = hello_ll_read,
+	.lookup		= hello_ll_lookup,
+	.getattr	= dbfs_op_getattr,
+	.readdir	= hello_ll_readdir,
+	.open		= hello_ll_open,
+	.read		= hello_ll_read,
 };
 
 int main(int argc, char *argv[])
@@ -146,6 +236,9 @@ int main(int argc, char *argv[])
 	char *mountpoint;
 	int err = -1;
 	int fd;
+
+	(void) env;
+	(void) db_data;
 
 	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 &&
 	    (fd = fuse_mount(mountpoint, &args)) != -1) {
