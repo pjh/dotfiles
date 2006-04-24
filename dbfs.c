@@ -313,30 +313,6 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	free(b.p);
 }
 
-#if 0
-static void hello_ll_open(fuse_req_t req, fuse_ino_t ino,
-			  struct fuse_file_info *fi)
-{
-	if (ino != 2)
-		fuse_reply_err(req, EISDIR);
-	else if ((fi->flags & 3) != O_RDONLY)
-		fuse_reply_err(req, EACCES);
-	else
-		fuse_reply_open(req, fi);
-}
-
-static const char *hello_str = "Hello World!\n";
-
-static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
-			  off_t off, struct fuse_file_info *fi)
-{
-	(void)fi;
-
-	assert(ino == 2);
-	reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
-}
-#endif
-
 static struct fuse_lowlevel_ops dbfs_ops = {
 	.init		= dbfs_init,
 	.destroy	= dbfs_exit,
