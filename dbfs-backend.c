@@ -218,6 +218,26 @@ static int dbfs_inode_write(struct dbfs_inode *ino)
 	return db_meta->get(db_meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
+static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
+{
+	if (S_ISDIR(mode))
+		*itype = IT_DIR;
+	else if (S_ISCHR(mode) || S_ISBLK(mode))
+		*itype = IT_DEV;
+	else if (S_ISFIFO(mode))
+		*itype = IT_FIFO;
+	else if (S_ISLNK(mode))
+		*itype = IT_SYMLINK;
+	else if (S_ISSOCK(mode))
+		*itype = IT_SOCKET;
+	else if (S_ISREG(mode))
+		*itype = IT_REG;
+	else
+		return -EINVAL;
+	
+	return 0;
+}
+
 int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 {
 	int rc;
@@ -254,20 +274,8 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 
 	/* deduce inode type */
 	mode = GUINT32_FROM_LE(ino->raw_inode->mode);
-	if (S_ISDIR(mode))
-		ino->type = IT_DIR;
-	else if (S_ISCHR(mode) || S_ISBLK(mode))
-		ino->type = IT_DEV;
-	else if (S_ISFIFO(mode))
-		ino->type = IT_FIFO;
-	else if (S_ISLNK(mode))
-		ino->type = IT_SYMLINK;
-	else if (S_ISSOCK(mode))
-		ino->type = IT_SOCKET;
-	else {
-		g_assert(S_ISREG(mode));
-		ino->type = IT_REG;
-	}
+	rc = dbfs_mode_type(mode, &ino->type);
+	g_assert(rc == 0);
 
 	*ino_out = ino;
 

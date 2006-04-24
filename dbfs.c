@@ -95,12 +95,55 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	free(val.data);
 }
 
+static int dbfs_mode_validate(mode_t mode)
+{
+	unsigned int ifmt = mode & S_IFMT;
+	int rc = 0;
+
+	if (S_ISREG(mode)) {
+		if (ifmt & ~S_IFREG)
+			rc = -EINVAL;
+	}
+	else if (S_ISDIR(mode)) {
+		if (ifmt & ~S_IFDIR)
+			rc = -EINVAL;
+	}
+	else if (S_ISCHR(mode)) {
+		if (ifmt & ~S_IFCHR)
+			rc = -EINVAL;
+	}
+	else if (S_ISBLK(mode)) {
+		if (ifmt & ~S_IFBLK)
+			rc = -EINVAL;
+	}
+	else if (S_ISFIFO(mode)) {
+		if (ifmt & ~S_IFIFO)
+			rc = -EINVAL;
+	}
+	else if (S_ISLNK(mode))
+		rc = -EINVAL;
+	else if (S_ISSOCK(mode)) {
+		if (ifmt & ~S_IFSOCK)
+			rc = -EINVAL;
+	}
+	else
+		rc = -EINVAL;
+
+	return rc;
+}
+
 static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 			  mode_t mode, dev_t rdev)
 {
 	struct fuse_entry_param ent;
 	struct dbfs_inode *ino;
 	int rc;
+
+	rc = dbfs_mode_validate(mode);
+	if (rc) {
+		fuse_reply_err(req, rc);
+		return;
+	}
 
 	rc = dbfs_mknod(parent, name, mode, rdev, &ino);
 	if (rc) {
