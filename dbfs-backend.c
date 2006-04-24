@@ -29,7 +29,7 @@ struct dbfs_unlink_info {
 static DB_ENV *db_env;
 static DB *db_meta;
 
-int init_db(void)
+void dbfs_init(void *userdata)
 {
 	const char *db_home, *db_password;
 	int rc;
@@ -42,7 +42,7 @@ int init_db(void)
 	db_home = getenv("DB_HOME");
 	if (!db_home) {
 		fprintf(stderr, "DB_HOME not set\n");
-		return 1;
+		exit(1);
 	}
 
 	db_password = getenv("DB_PASSWORD");
@@ -54,7 +54,7 @@ int init_db(void)
 	rc = db_env_create(&db_env, 0);
 	if (rc) {
 		fprintf(stderr, "db_env_create failed: %d\n", rc);
-		return 1;
+		exit(1);
 	}
 
 	db_env->set_errfile(db_env, stderr);
@@ -106,16 +106,16 @@ int init_db(void)
 		goto err_out_meta;
 	}
 
-	return 0;
+	return;
 
 err_out_meta:
 	db_meta->close(db_meta, 0);
 err_out:
 	db_env->close(db_env, 0);
-	return 1;
+	exit(1);
 }
 
-void exit_db(void)
+void dbfs_exit(void *userdata)
 {
 	db_meta->close(db_meta, 0);
 	db_env->close(db_env, 0);

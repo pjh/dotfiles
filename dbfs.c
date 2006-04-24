@@ -233,8 +233,8 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 #endif
 
 static struct fuse_lowlevel_ops dbfs_ops = {
-	.init		= NULL,
-	.destroy	= NULL,
+	.init		= dbfs_init,
+	.destroy	= dbfs_exit,
 	.lookup		= dbfs_op_lookup,
 	.forget		= NULL,
 	.getattr	= dbfs_op_getattr,
@@ -273,8 +273,6 @@ int main(int argc, char *argv[])
 	int err = -1;
 	int fd;
 
-	init_db();
-
 	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 &&
 	    (fd = fuse_mount(mountpoint, &args)) != -1) {
 		struct fuse_session *se;
@@ -296,8 +294,6 @@ int main(int argc, char *argv[])
 	}
 	fuse_unmount(mountpoint);
 	fuse_opt_free_args(&args);
-
-	exit_db();
 
 	return err ? 1 : 0;
 }
