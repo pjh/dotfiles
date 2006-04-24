@@ -31,8 +31,9 @@ static DB *db_meta;
 
 int init_db(void)
 {
-	const char *db_home;
+	const char *db_home, *db_password;
 	int rc;
+	unsigned int flags = 0;
 
 	/*
 	 * open DB environment
@@ -44,6 +45,12 @@ int init_db(void)
 		return 1;
 	}
 
+	db_password = getenv("DB_PASSWORD");
+	if (db_password) {
+		if (putenv("DB_PASSWORD=X"))
+			perror("putenv (SECURITY WARNING)");
+	}
+
 	rc = db_env_create(&db_env, 0);
 	if (rc) {
 		fprintf(stderr, "db_env_create failed: %d\n", rc);
@@ -53,12 +60,21 @@ int init_db(void)
 	db_env->set_errfile(db_env, stderr);
 	db_env->set_errpfx(db_env, "dbfs");
 
+	if (db_password) {
+		flags |= DB_ENCRYPT;
+		rc = db_env->set_encrypt(db_env, db_password, DB_ENCRYPT_AES);
+		if (rc) {
+			db_env->err(db_env, rc, "db_env->set_encrypt");
+			goto err_out;
+		}
+	}
+
 	rc = db_env->open(db_env, db_home,
 			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
-			  DB_INIT_TXN | DB_RECOVER | DB_CREATE, 0666);
+			  DB_INIT_TXN | DB_RECOVER | DB_CREATE | flags, 0666);
 	if (rc) {
 		db_env->err(db_env, rc, "db_env->open");
-		return 1;
+		goto err_out;
 	}
 
 	/*
@@ -72,9 +88,21 @@ int init_db(void)
 	}
 
 	rc = db_meta->open(db_meta, NULL, "metadata", NULL,
-			   DB_HASH, DB_AUTO_COMMIT | DB_CREATE, 0666);
+			   DB_HASH, DB_AUTO_COMMIT | DB_CREATE | flags, 0666);
 	if (rc) {
 		db_meta->err(db_meta, rc, "db_meta->open");
+		goto err_out_meta;
+	}
+
+	rc = db_meta->set_pagesize(db_meta, 512);
+	if (rc) {
+		db_meta->err(db_meta, rc, "db_meta->set_pagesize");
+		goto err_out_meta;
+	}
+
+	rc = db_meta->set_lorder(db_meta, 1234);
+	if (rc) {
+		db_meta->err(db_meta, rc, "db_meta->set_lorder");
 		goto err_out_meta;
 	}
 
