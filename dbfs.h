@@ -45,7 +45,8 @@ struct dbfs_raw_inode {
 
 struct dbfs_inode {
 	unsigned int		n_extents;
-	struct dbfs_raw_inode	raw_inode;
+	unsigned int		raw_ino_size;
+	struct dbfs_raw_inode	*raw_inode;
 };
 
 
@@ -57,5 +58,6 @@ extern int dbfs_read_link(guint64 ino, DBT *val);
 extern int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata);
 extern int dbfs_lookup(guint64 parent, const char *name, guint64 *ino);
 extern int dbfs_unlink(guint64 parent, const char *name, unsigned long flags);
+extern void dbfs_inode_free(struct dbfs_inode *ino);
 
 #endif /* __DBFS_H__ */

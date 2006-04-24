@@ -29,21 +29,21 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	memset(&st, 0, sizeof(st));
 	st.st_dev	= 1;
 	st.st_ino	= ino_n;
-	st.st_mode	= ino->raw_inode.mode;
-	st.st_nlink	= ino->raw_inode.nlink;
-	st.st_uid	= ino->raw_inode.uid;
-	st.st_gid	= ino->raw_inode.gid;
-	st.st_rdev	= ino->raw_inode.rdev;
-	st.st_size	= ino->raw_inode.size;
+	st.st_mode	= GUINT32_FROM_LE(ino->raw_inode->mode);
+	st.st_nlink	= GUINT32_FROM_LE(ino->raw_inode->nlink);
+	st.st_uid	= GUINT32_FROM_LE(ino->raw_inode->uid);
+	st.st_gid	= GUINT32_FROM_LE(ino->raw_inode->gid);
+	st.st_rdev	= GUINT64_FROM_LE(ino->raw_inode->rdev);
+	st.st_size	= GUINT64_FROM_LE(ino->raw_inode->size);
 	st.st_blksize	= 512;
-	st.st_blocks	= ino->raw_inode.size / 512;
-	st.st_atime	= ino->raw_inode.atime;
-	st.st_mtime	= ino->raw_inode.mtime;
-	st.st_ctime	= ino->raw_inode.ctime;
+	st.st_blocks	= GUINT64_FROM_LE(ino->raw_inode->size) / 512;
+	st.st_atime	= GUINT64_FROM_LE(ino->raw_inode->atime);
+	st.st_mtime	= GUINT64_FROM_LE(ino->raw_inode->mtime);
+	st.st_ctime	= GUINT64_FROM_LE(ino->raw_inode->ctime);
 
 	fuse_reply_attr(req, &st, 1.0);
 
-	g_free(ino);
+	dbfs_inode_free(ino);
 }
 
 static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
@@ -180,7 +180,6 @@ static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
-	struct dbfs_inode *ino;
 	guint64 ino_n;
 	int rc;
 	DBT val;
@@ -189,32 +188,22 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	if (rc)
 		goto err_out;
 
-	rc = dbfs_inode_read(ino_n, &ino);
+	rc = dbfs_read_dir(ino_n, &val);
 	if (rc)
 		goto err_out;
-	if (!S_ISDIR(ino->raw_inode.mode)) {
-		rc = ENOTDIR;
-		goto err_out_free;
-	}
-
-	rc = dbfs_read_dir(parent, &val);
-	if (rc)
-		goto err_out_free;
 
 	rc = dbfs_dir_foreach(val.data, dbfs_chk_empty, NULL);
 	free(val.data);
 
 	if (rc)
-		goto err_out_free;
+		goto err_out;
 
 	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
 	if (rc)
-		goto err_out_free;
+		goto err_out;
 
 	return;
 
-err_out_free:
-	g_free(ino);
 err_out:
 	fuse_reply_err(req, rc);
 }

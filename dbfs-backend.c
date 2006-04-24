@@ -36,6 +36,12 @@ void dbfs_dummy1(void)
 	(void) db_data;
 }
 
+void dbfs_inode_free(struct dbfs_inode *ino)
+{
+	free(ino->raw_inode);
+	g_free(ino);
+}
+
 static int dbfs_inode_del(guint64 ino_n)
 {
 	/* FIXME */
@@ -44,8 +50,23 @@ static int dbfs_inode_del(guint64 ino_n)
 
 static int dbfs_inode_write(struct dbfs_inode *ino)
 {
-	/* FIXME */
-	return -EIO;
+	struct dbfs_raw_inode *raw_ino = ino->raw_inode;
+	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
+	DBT key, val;
+	char key_str[32];
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	sprintf(key_str, "/inode/%Lu", (unsigned long long) ino_n);
+
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	val.data = raw_ino;
+	val.size = ino->raw_ino_size;
+
+	return db_meta->get(db_meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
 int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
@@ -53,9 +74,8 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	int rc;
 	DBT key, val;
 	char key_str[32];
-	struct dbfs_raw_inode *raw_ino;
 	struct dbfs_inode *ino;
-	size_t ex_sz, i;
+	size_t ex_sz;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
@@ -73,29 +93,14 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	if (rc)
 		return rc;
 
-	raw_ino = val.data;
-	raw_ino->ino		= GUINT64_FROM_LE(raw_ino->ino);
-	raw_ino->generation	= GUINT64_FROM_LE(raw_ino->generation);
-	raw_ino->mode		= GUINT32_FROM_LE(raw_ino->mode);
-	raw_ino->nlink		= GUINT32_FROM_LE(raw_ino->nlink);
-	raw_ino->uid		= GUINT32_FROM_LE(raw_ino->uid);
-	raw_ino->gid		= GUINT32_FROM_LE(raw_ino->gid);
-	raw_ino->rdev		= GUINT64_FROM_LE(raw_ino->rdev);
-	raw_ino->size		= GUINT64_FROM_LE(raw_ino->size);
-	raw_ino->ctime		= GUINT64_FROM_LE(raw_ino->ctime);
-	raw_ino->atime		= GUINT64_FROM_LE(raw_ino->atime);
-	raw_ino->mtime		= GUINT64_FROM_LE(raw_ino->mtime);
-
 	ex_sz = val.size - sizeof(struct dbfs_raw_inode);
-	i = sizeof(struct dbfs_inode) - sizeof(struct dbfs_raw_inode);
 
-	ino = g_malloc(i + ex_sz + sizeof(struct dbfs_raw_inode));
-	memcpy(&ino->raw_inode, raw_ino, val.size);
+	ino = g_new(struct dbfs_inode, 1);
 	ino->n_extents = ex_sz / sizeof(struct dbfs_extent);
+	ino->raw_ino_size = val.size;
+	ino->raw_inode = val.data;
 
 	*ino_out = ino;
-
-	free(val.data);
 
 	return 0;
 }
@@ -119,7 +124,7 @@ int dbfs_read_dir(guint64 ino, DBT *val)
 	rc = db_meta->get(db_meta, NULL, &key, val, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOTDIR;
-	return rc;
+	return rc ? -EIO : 0;
 }
 
 static int dbfs_write_dir(guint64 ino, DBT *val)
@@ -134,7 +139,7 @@ static int dbfs_write_dir(guint64 ino, DBT *val)
 	key.data = key_str;
 	key.size = strlen(key_str);
 
-	return db_meta->put(db_meta, NULL, &key, val, 0);
+	return db_meta->put(db_meta, NULL, &key, val, 0) ? -EIO : 0;
 }
 
 int dbfs_read_link(guint64 ino, DBT *val)
@@ -156,7 +161,7 @@ int dbfs_read_link(guint64 ino, DBT *val)
 	rc = db_meta->get(db_meta, NULL, &key, val, 0);
 	if (rc == DB_NOTFOUND)
 		return -EINVAL;
-	return rc;
+	return rc ? -EIO : 0;
 }
 
 int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
@@ -281,6 +286,7 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 	struct dbfs_inode *ino;
 	guint64 ino_n;
 	int rc, is_dir;
+	guint32 nlink;
 
 	rc = dbfs_lookup(parent, name, &ino_n);
 	if (rc)
@@ -290,7 +296,7 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 	if (rc)
 		goto out;
 
-	is_dir = S_ISDIR(ino->raw_inode.mode);
+	is_dir = S_ISDIR(GUINT32_FROM_LE(ino->raw_inode->mode));
 	if (is_dir && (!(flags & DBFS_UNLINK_DIR))) {
 		rc = -EISDIR;
 		goto out_ino;
@@ -300,16 +306,18 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 	if (rc)
 		goto out_ino;
 
-	ino->raw_inode.nlink--;
+	nlink = GUINT32_FROM_LE(ino->raw_inode->nlink);
+	nlink--;
+	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
 
-	if ((is_dir && (ino->raw_inode.nlink < 2)) ||
-	    (!is_dir && (ino->raw_inode.nlink < 1)))
+	if ((is_dir && (nlink < 2)) ||
+	    (!is_dir && (nlink < 1)))
 		rc = dbfs_inode_del(ino_n);
 	else
 		rc = dbfs_inode_write(ino);
 
 out_ino:
-	g_free(ino);
+	dbfs_inode_free(ino);
 out:
 	return rc;
 }
