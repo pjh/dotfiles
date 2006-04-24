@@ -19,6 +19,13 @@ struct dbfs_lookup_info {
 	guint64		*ino;
 };
 
+struct dbfs_unlink_info {
+	const char		*name;
+	size_t			namelen;
+	void			*start_ent;
+	void			*end_ent;
+};
+
 static DB_ENV *env;
 static DB *db_data;
 static DB *db_meta;
@@ -103,27 +110,20 @@ int dbfs_read_dir(guint64 ino, DBT *val)
 	return rc;
 }
 
-#if 0
-static int dbfs_write_dir(guint64 ino, DBT *val_in, size_t size)
+static int dbfs_write_dir(guint64 ino, DBT *val)
 {
-	DBT key, val;
+	DBT key;
 	char key_str[32];
 
 	memset(&key, 0, sizeof(key));
-	memcpy(&val, val_in, sizeof(val));
-
-	val.size = size;
 
 	sprintf(key_str, "/dir/%Lu", (unsigned long long) ino);
 
 	key.data = key_str;
 	key.size = strlen(key_str);
 
-	return db_meta->put(db_meta, NULL, &key, &val, 0);
-
-	/* TODO: touch inode */
+	return db_meta->put(db_meta, NULL, &key, val, 0);
 }
-#endif
 
 int dbfs_read_link(guint64 ino, DBT *val)
 {
@@ -214,6 +214,56 @@ int dbfs_lookup(guint64 parent, const char *name, guint64 *ino)
 	return rc;
 }
 
+static int dbfs_dir_scan1(struct dbfs_dirent *de, void *userdata)
+{
+	struct dbfs_unlink_info *ui = userdata;
+
+	if (!ui->start_ent) {
+		if ((de->namelen == ui->namelen) &&
+		    (!memcmp(de->name, ui->name, ui->namelen)))
+			ui->start_ent = de;
+	}
+	else if (!ui->end_ent) {
+		ui->end_ent = de;
+		return 1;
+	}
+
+	return 0;
+}
+
+static int dbfs_dirent_del(guint64 parent, const char *name)
+{
+	struct dbfs_unlink_info ui;
+	DBT dir_val;
+	int rc, del_len, tail_len;
+
+	rc = dbfs_read_dir(parent, &dir_val);
+	if (rc)
+		return rc;
+
+	memset(&ui, 0, sizeof(ui));
+	ui.name = name;
+	ui.namelen = strlen(name);
+
+	rc = dbfs_dir_foreach(dir_val.data, dbfs_dir_scan1, &ui);
+	if (rc != 1) {
+		free(dir_val.data);
+		return -ENOENT;
+	}
+
+	del_len = ui.end_ent - ui.start_ent;
+	tail_len = (dir_val.data + dir_val.size) - ui.end_ent;
+
+	memmove(ui.start_ent, ui.end_ent, tail_len);
+	dir_val.size -= del_len;
+
+	rc = dbfs_write_dir(parent, &dir_val);
+
+	free(dir_val.data);
+
+	return rc;
+}
+
 int dbfs_unlink(guint64 parent, const char *name)
 {
 	struct dbfs_inode *ino;
@@ -228,14 +278,15 @@ int dbfs_unlink(guint64 parent, const char *name)
 	if (rc)
 		goto err_out;
 
+	rc = dbfs_dirent_del(parent, name);
+
 	/* FIXME stopped working here...
 
-	 * delete dir entry
 	 * decrement n_links
 	 * if n_links==0, delete inode
 	 */
 
 err_out:
-	return 0; /* FIXME */
+	return rc;
 }
 
