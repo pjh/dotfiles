@@ -42,10 +42,59 @@ void dbfs_inode_free(struct dbfs_inode *ino)
 	g_free(ino);
 }
 
-static int dbfs_inode_del(guint64 ino_n)
+static int dbmeta_del(const char *key_str)
 {
-	/* FIXME */
-	return -EIO;
+	DBT key;
+	int rc;
+
+	key.data = (void *) key_str;
+	key.size = strlen(key_str);
+
+	rc = db_meta->del(db_meta, NULL, &key, 0);
+	if (rc == DB_NOTFOUND)
+		return -ENOENT;
+	if (rc)
+		return -EIO;
+	return 0;
+}
+
+static int dbfs_inode_del(struct dbfs_inode *ino)
+{
+	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
+	char key[32];
+	int rc, rrc;
+
+	sprintf(key, "/inode/%Lu", (unsigned long long) ino_n);
+
+	rrc = dbmeta_del(key);
+
+	switch (ino->type) {
+	case IT_REG:
+		/* FIXME */
+		break;
+	
+	case IT_DIR:
+		sprintf(key, "/dir/%Lu", (unsigned long long) ino_n);
+		rc = dbmeta_del(key);
+		if (rc && !rrc)
+			rrc = rc;
+		break;
+
+	case IT_SYMLINK:
+		sprintf(key, "/symlink/%Lu", (unsigned long long) ino_n);
+		rc = dbmeta_del(key);
+		if (rc && !rrc)
+			rrc = rc;
+		break;
+
+	case IT_DEV:
+	case IT_FIFO:
+	case IT_SOCKET:
+		/* nothing additional to delete */
+		break;
+	}
+
+	return rrc;
 }
 
 static int dbfs_inode_write(struct dbfs_inode *ino)
@@ -66,6 +115,9 @@ static int dbfs_inode_write(struct dbfs_inode *ino)
 	val.data = raw_ino;
 	val.size = ino->raw_ino_size;
 
+	raw_ino->version = GUINT64_TO_LE(
+		GUINT64_FROM_LE(raw_ino->version) + 1);
+
 	return db_meta->get(db_meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
@@ -76,6 +128,7 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	char key_str[32];
 	struct dbfs_inode *ino;
 	size_t ex_sz;
+	guint32 mode;
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
@@ -99,6 +152,22 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	ino->n_extents = ex_sz / sizeof(struct dbfs_extent);
 	ino->raw_ino_size = val.size;
 	ino->raw_inode = val.data;
+
+	mode = GUINT32_FROM_LE(ino->raw_inode->mode);
+	if (S_ISDIR(mode))
+		ino->type = IT_DIR;
+	else if (S_ISCHR(mode) || S_ISBLK(mode))
+		ino->type = IT_DEV;
+	else if (S_ISFIFO(mode))
+		ino->type = IT_FIFO;
+	else if (S_ISLNK(mode))
+		ino->type = IT_SYMLINK;
+	else if (S_ISSOCK(mode))
+		ino->type = IT_SOCKET;
+	else {
+		g_assert(S_ISREG(mode));
+		ino->type = IT_REG;
+	}
 
 	*ino_out = ino;
 
@@ -307,12 +376,14 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 		goto out_ino;
 
 	nlink = GUINT32_FROM_LE(ino->raw_inode->nlink);
-	nlink--;
+	if (is_dir && (nlink <= 2))
+		nlink = 0;
+	else
+		nlink--;
 	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
 
-	if ((is_dir && (nlink < 2)) ||
-	    (!is_dir && (nlink < 1)))
-		rc = dbfs_inode_del(ino_n);
+	if (!nlink)
+		rc = dbfs_inode_del(ino);
 	else
 		rc = dbfs_inode_write(ino);
 

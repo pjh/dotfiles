@@ -11,6 +11,15 @@ enum {
 	DBFS_DE_MAGIC		= 0xd4d4d4d4U,
 };
 
+enum dbfs_inode_type {
+	IT_REG,
+	IT_DIR,
+	IT_DEV,
+	IT_FIFO,
+	IT_SYMLINK,
+	IT_SOCKET
+};
+
 typedef struct {
 	char		buf[DBFS_BLK_ID_LEN];
 } dbfs_blk_id_t;
@@ -30,7 +39,7 @@ struct dbfs_extent {
 
 struct dbfs_raw_inode {
 	guint64		ino;
-	guint64		generation;
+	guint64		version;
 	guint32		mode;
 	guint32		nlink;
 	guint32		uid;
@@ -46,6 +55,7 @@ struct dbfs_raw_inode {
 struct dbfs_inode {
 	unsigned int		n_extents;
 	unsigned int		raw_ino_size;
+	enum dbfs_inode_type	type;
 	struct dbfs_raw_inode	*raw_inode;
 };
 
