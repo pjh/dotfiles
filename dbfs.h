@@ -32,12 +32,12 @@ struct dbfs_dirent {
 	guint16		namelen;
 	guint64		ino;
 	char		name[0];
-};
+} __attribute__ ((packed));
 
 struct dbfs_extent {
 	dbfs_blk_id_t	id;
 	guint64		size;
-};
+} __attribute__ ((packed));
 
 struct dbfs_raw_inode {
 	guint64		ino;
@@ -52,7 +52,7 @@ struct dbfs_raw_inode {
 	guint64		atime;
 	guint64		mtime;
 	struct dbfs_extent blocks[0];
-};
+} __attribute__ ((packed));
 
 struct dbfs_inode {
 	unsigned int		n_extents;

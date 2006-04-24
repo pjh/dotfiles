@@ -20,12 +20,16 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	struct stat st;
 	int rc;
 
+	/* read inode from database */
 	rc = dbfs_inode_read(ino_n, &ino);
 	if (rc) {
 		fuse_reply_err(req, ENOENT);
 		return;
 	}
 
+	/* fill in stat buf, taking care to convert from
+	 * little endian to native endian
+	 */
 	memset(&st, 0, sizeof(st));
 	st.st_dev	= 1;
 	st.st_ino	= ino_n;
@@ -36,11 +40,12 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	st.st_rdev	= GUINT64_FROM_LE(ino->raw_inode->rdev);
 	st.st_size	= GUINT64_FROM_LE(ino->raw_inode->size);
 	st.st_blksize	= 512;
-	st.st_blocks	= GUINT64_FROM_LE(ino->raw_inode->size) / 512;
+	st.st_blocks	= GUINT64_FROM_LE(ino->raw_inode->size) / 512ULL;
 	st.st_atime	= GUINT64_FROM_LE(ino->raw_inode->atime);
 	st.st_mtime	= GUINT64_FROM_LE(ino->raw_inode->mtime);
 	st.st_ctime	= GUINT64_FROM_LE(ino->raw_inode->ctime);
 
+	/* send result back to FUSE */
 	fuse_reply_attr(req, &st, 2.0);
 
 	dbfs_inode_free(ino);
@@ -52,12 +57,14 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	DBT val;
 	char *s;
 
+	/* read link from database */
 	rc = dbfs_read_link(ino, &val);
 	if (rc) {
 		fuse_reply_err(req, rc);
 		return;
 	}
 
+	/* send reply; use g_strndup to append a trailing null */
 	s = g_strndup(val.data, val.size);
 	fuse_reply_readlink(req, s);
 	g_free(s);
@@ -71,14 +78,16 @@ static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	guint64 ino;
 	int rc;
 
+	/* lookup inode in parent directory */
 	rc = dbfs_lookup(parent, name, &ino);
 	if (rc) {
 		fuse_reply_err(req, rc);
 		return;
 	}
 
-	memset(&e, 0, sizeof(e));
+	/* send reply; timeout of 2.0 is just a guess */
 
+	memset(&e, 0, sizeof(e));
 	e.ino = ino;
 	e.attr_timeout = 2.0;
 	e.entry_timeout = 2.0;
@@ -92,14 +101,17 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 	DBT val;
 	int rc;
 
+	/* read directory from database */
 	rc = dbfs_read_dir(ino, &val);
 	if (rc) {
 		fuse_reply_err(req, rc);
 		return;
 	}
 
+	/* save for later use */
 	fi->fh = (uint64_t) (unsigned long) val.data;
 
+	/* send reply */
 	fuse_reply_open(req, fi);
 }
 
@@ -107,6 +119,8 @@ static void dbfs_op_releasedir(fuse_req_t req, fuse_ino_t ino,
 			       struct fuse_file_info *fi)
 {
 	void *p = (void *) (unsigned long) fi->fh;
+
+	/* release directory contents */
 	free(p);
 }
 
@@ -115,6 +129,7 @@ struct dirbuf {
 	size_t size;
 };
 
+/* stock function copied from FUSE template */
 static void dirbuf_add(struct dirbuf *b, const char *name, fuse_ino_t ino)
 {
 	struct stat stbuf;
@@ -126,8 +141,11 @@ static void dirbuf_add(struct dirbuf *b, const char *name, fuse_ino_t ino)
 	fuse_add_dirent(b->p + oldsize, name, &stbuf, b->size);
 }
 
+#ifndef min
 #define min(x, y) ((x) < (y) ? (x) : (y))
+#endif
 
+/* stock function copied from FUSE template */
 static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
 			     off_t off, size_t maxsize)
 {
@@ -141,7 +159,10 @@ static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
 static int dbfs_fill_dirbuf(struct dbfs_dirent *de, void *userdata)
 {
 	struct dirbuf *b = userdata;
-	char *s = g_strndup(de->name, de->namelen);
+	char *s;
+
+	/* add dirent to buffer; use g_strndup solely to append nul */
+	s = g_strndup(de->name, de->namelen);
 	dirbuf_add(b, s, de->ino);
 	free(s);
 	return 0;
@@ -153,11 +174,14 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	struct dirbuf b;
 	void *p;
 
+	/* grab directory contents stored by opendir */
 	p = (void *) (unsigned long) fi->fh;
 
+	/* iterate through each dirent, filling dirbuf */
 	memset(&b, 0, sizeof(b));
 	dbfs_dir_foreach(p, dbfs_fill_dirbuf, &b);
 
+	/* send reply */
 	reply_buf_limited(req, b.p, b.size, off, size);
 	free(b.p);
 }
@@ -184,20 +208,25 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	int rc;
 	DBT val;
 
+	/* get inode number associated with name */
 	rc = dbfs_lookup(parent, name, &ino_n);
 	if (rc)
 		goto err_out;
 
+	/* read dir associated with name */
 	rc = dbfs_read_dir(ino_n, &val);
 	if (rc)
 		goto err_out;
 
+	/* make sure dir only contains "." and ".." */
 	rc = dbfs_dir_foreach(val.data, dbfs_chk_empty, NULL);
 	free(val.data);
 
+	/* if dbfs_chk_empty() returns non-zero, dir is not empty */
 	if (rc)
 		goto err_out;
 
+	/* dir is empty, go ahead and unlink */
 	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
 	if (rc)
 		goto err_out;
@@ -266,6 +295,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.create		= NULL,
 };
 
+/* stock main() from FUSE example */
 int main(int argc, char *argv[])
 {
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);

@@ -19,7 +19,7 @@ struct dbfs_lookup_info {
 	guint64		*ino;
 };
 
-struct dbfs_unlink_info {
+struct dbfs_dirscan_info {
 	const char		*name;
 	size_t			namelen;
 	void			*start_ent;
@@ -45,11 +45,8 @@ void dbfs_init(void *userdata)
 		exit(1);
 	}
 
+	/* this isn't a very secure way to handle passwords */
 	db_password = getenv("DB_PASSWORD");
-	if (db_password) {
-		if (putenv("DB_PASSWORD=X"))
-			perror("putenv (SECURITY WARNING)");
-	}
 
 	rc = db_env_create(&db_env, 0);
 	if (rc) {
@@ -57,6 +54,7 @@ void dbfs_init(void *userdata)
 		exit(1);
 	}
 
+	/* stderr is wrong; should use syslog instead */
 	db_env->set_errfile(db_env, stderr);
 	db_env->set_errpfx(db_env, "dbfs");
 
@@ -67,8 +65,13 @@ void dbfs_init(void *userdata)
 			db_env->err(db_env, rc, "db_env->set_encrypt");
 			goto err_out;
 		}
+
+		/* this isn't a very good way to shroud the password */
+		if (putenv("DB_PASSWORD=X"))
+			perror("putenv (SECURITY WARNING)");
 	}
 
+	/* init DB transactional environment, stored in directory db_home */
 	rc = db_env->open(db_env, db_home,
 			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
 			  DB_INIT_TXN | DB_RECOVER | DB_CREATE | flags, 0666);
@@ -94,12 +97,17 @@ void dbfs_init(void *userdata)
 		goto err_out_meta;
 	}
 
+	/* our data items are small, so use the smallest possible page
+	 * size.  This is a guess, and should be verified by looking at
+	 * overflow pages and other DB statistics.
+	 */
 	rc = db_meta->set_pagesize(db_meta, 512);
 	if (rc) {
 		db_meta->err(db_meta, rc, "db_meta->set_pagesize");
 		goto err_out_meta;
 	}
 
+	/* fix everything as little endian */
 	rc = db_meta->set_lorder(db_meta, 1234);
 	if (rc) {
 		db_meta->err(db_meta, rc, "db_meta->set_lorder");
@@ -138,6 +146,7 @@ static int dbmeta_del(const char *key_str)
 	key.data = (void *) key_str;
 	key.size = strlen(key_str);
 
+	/* delete key 'key_str' from metadata database */
 	rc = db_meta->del(db_meta, NULL, &key, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
@@ -234,13 +243,16 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	if (rc)
 		return rc;
 
+	/* calculate size of struct dbfs_extent area */
 	ex_sz = val.size - sizeof(struct dbfs_raw_inode);
 
+	/* initialize runtime information about the inode */
 	ino = g_new(struct dbfs_inode, 1);
 	ino->n_extents = ex_sz / sizeof(struct dbfs_extent);
 	ino->raw_ino_size = val.size;
 	ino->raw_inode = val.data;
 
+	/* deduce inode type */
 	mode = GUINT32_FROM_LE(ino->raw_inode->mode);
 	if (S_ISDIR(mode))
 		ino->type = IT_DIR;
@@ -338,10 +350,14 @@ int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
 		if (!de->namelen)
 			break;
 
+		/* send dirent to callback function */
 		rc = func(de, userdata);
 		if (rc)
 			break;
 
+		/* align things so that compiler structures
+		 * do not wind up misaligned.
+		 */
 		p += sizeof(struct dbfs_dirent) + de->namelen +
 		     (4 - (de->namelen & 0x3));
 	}
@@ -349,13 +365,17 @@ int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
 	return rc;
 }
 
-static int dbfs_dir_cmp(struct dbfs_dirent *de, void *userdata)
+static int dbfs_dir_scan1(struct dbfs_dirent *de, void *userdata)
 {
-	struct dbfs_lookup_info *li = userdata;
+	struct dbfs_dirscan_info *di = userdata;
 
-	if ((li->namelen == de->namelen) &&
-	    (!memcmp(li->name, de->name, li->namelen))) {
-	    	*li->ino = de->ino;
+	if (!di->start_ent) {
+		if ((de->namelen == di->namelen) &&
+		    (!memcmp(de->name, di->name, di->namelen)))
+			di->start_ent = de;
+	}
+	else if (!di->end_ent) {
+		di->end_ent = de;
 		return 1;
 	}
 
@@ -364,50 +384,43 @@ static int dbfs_dir_cmp(struct dbfs_dirent *de, void *userdata)
 
 int dbfs_lookup(guint64 parent, const char *name, guint64 *ino)
 {
-	struct dbfs_lookup_info li;
-	size_t namelen = strlen(name);
+	struct dbfs_dirscan_info di;
+	struct dbfs_dirent *de;
 	DBT val;
 	int rc;
 
 	*ino = 0;
 
+	/* read directory from database */
 	rc = dbfs_read_dir(parent, &val);
 	if (rc)
 		return rc;
 
-	li.name = name;
-	li.namelen = namelen;
-	li.ino = ino;
-	rc = dbfs_dir_foreach(val.data, dbfs_dir_cmp, &li);
-	if (rc)
-		rc = 0;
-	else
-		rc = -ENOENT;
+	memset(&di, 0, sizeof(di));
+	di.name = name;
+	di.namelen = strlen(name);
 
+	/* query pointer to start of matching dirent */
+	rc = dbfs_dir_foreach(val.data, dbfs_dir_scan1, &di);
+	if (!rc || !di.start_ent) {
+		rc = -ENOENT;
+		goto out;
+	}
+	if (rc != 1)
+		goto out;
+
+	/* if match found, return inode number */
+	de = di.start_ent;
+	*ino = de->ino;
+
+out:
 	free(val.data);
 	return rc;
 }
 
-static int dbfs_dir_scan1(struct dbfs_dirent *de, void *userdata)
-{
-	struct dbfs_unlink_info *ui = userdata;
-
-	if (!ui->start_ent) {
-		if ((de->namelen == ui->namelen) &&
-		    (!memcmp(de->name, ui->name, ui->namelen)))
-			ui->start_ent = de;
-	}
-	else if (!ui->end_ent) {
-		ui->end_ent = de;
-		return 1;
-	}
-
-	return 0;
-}
-
 static int dbfs_dirent_del(guint64 parent, const char *name)
 {
-	struct dbfs_unlink_info ui;
+	struct dbfs_dirscan_info ui;
 	DBT dir_val;
 	int rc, del_len, tail_len;
 
@@ -419,6 +432,7 @@ static int dbfs_dirent_del(guint64 parent, const char *name)
 	ui.name = name;
 	ui.namelen = strlen(name);
 
+	/* query pointer to start of matching dirent */
 	rc = dbfs_dir_foreach(dir_val.data, dbfs_dir_scan1, &ui);
 	if (rc != 1) {
 		free(dir_val.data);
