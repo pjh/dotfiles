@@ -20,7 +20,7 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	struct stat st;
 	int rc;
 
-	rc = dbfs_read_inode(ino_n, &ino);
+	rc = dbfs_inode_read(ino_n, &ino);
 	if (rc) {
 		fuse_reply_err(req, ENOENT);
 		return;
@@ -173,7 +173,7 @@ static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
 
 static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
-	int rc = dbfs_unlink(parent, name);
+	int rc = dbfs_unlink(parent, name, 0);
 	if (rc)
 		fuse_reply_err(req, rc);
 }
@@ -189,7 +189,7 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	if (rc)
 		goto err_out;
 
-	rc = dbfs_read_inode(ino_n, &ino);
+	rc = dbfs_inode_read(ino_n, &ino);
 	if (rc)
 		goto err_out;
 	if (!S_ISDIR(ino->raw_inode.mode)) {
@@ -207,7 +207,7 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	if (rc)
 		goto err_out_free;
 
-	rc = dbfs_unlink(parent, name);
+	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
 	if (rc)
 		goto err_out_free;
 

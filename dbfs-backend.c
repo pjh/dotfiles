@@ -36,7 +36,19 @@ void dbfs_dummy1(void)
 	(void) db_data;
 }
 
-int dbfs_read_inode(guint64 ino_n, struct dbfs_inode **ino_out)
+static int dbfs_inode_del(guint64 ino_n)
+{
+	/* FIXME */
+	return -EIO;
+}
+
+static int dbfs_inode_write(struct dbfs_inode *ino)
+{
+	/* FIXME */
+	return -EIO;
+}
+
+int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 {
 	int rc;
 	DBT key, val;
@@ -264,29 +276,41 @@ static int dbfs_dirent_del(guint64 parent, const char *name)
 	return rc;
 }
 
-int dbfs_unlink(guint64 parent, const char *name)
+int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 {
 	struct dbfs_inode *ino;
 	guint64 ino_n;
-	int rc;
+	int rc, is_dir;
 
 	rc = dbfs_lookup(parent, name, &ino_n);
 	if (rc)
-		goto err_out;
+		goto out;
 
-	rc = dbfs_read_inode(ino_n, &ino);
+	rc = dbfs_inode_read(ino_n, &ino);
 	if (rc)
-		goto err_out;
+		goto out;
+
+	is_dir = S_ISDIR(ino->raw_inode.mode);
+	if (is_dir && (!(flags & DBFS_UNLINK_DIR))) {
+		rc = -EISDIR;
+		goto out_ino;
+	}
 
 	rc = dbfs_dirent_del(parent, name);
+	if (rc)
+		goto out_ino;
 
-	/* FIXME stopped working here...
+	ino->raw_inode.nlink--;
 
-	 * decrement n_links
-	 * if n_links==0, delete inode
-	 */
+	if ((is_dir && (ino->raw_inode.nlink < 2)) ||
+	    (!is_dir && (ino->raw_inode.nlink < 1)))
+		rc = dbfs_inode_del(ino_n);
+	else
+		rc = dbfs_inode_write(ino);
 
-err_out:
+out_ino:
+	g_free(ino);
+out:
 	return rc;
 }
 

@@ -3,6 +3,8 @@
 
 enum {
 	DBFS_BLK_ID_LEN		= 20,
+
+	DBFS_UNLINK_DIR		= (1 << 0),
 };
 
 enum {
@@ -49,11 +51,11 @@ struct dbfs_inode {
 
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 
-extern int dbfs_read_inode(guint64 ino_n, struct dbfs_inode **ino_out);
+extern int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out);
 extern int dbfs_read_dir(guint64 ino, DBT *val);
 extern int dbfs_read_link(guint64 ino, DBT *val);
 extern int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata);
 extern int dbfs_lookup(guint64 parent, const char *name, guint64 *ino);
-extern int dbfs_unlink(guint64 parent, const char *name);
+extern int dbfs_unlink(guint64 parent, const char *name, unsigned long flags);
 
 #endif /* __DBFS_H__ */
