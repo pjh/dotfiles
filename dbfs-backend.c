@@ -361,6 +361,11 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 	if (rc)
 		goto out;
 
+	if (ino_n == DBFS_ROOT_INO) {
+		rc = -EINVAL;
+		goto out;
+	}
+
 	rc = dbfs_inode_read(ino_n, &ino);
 	if (rc)
 		goto out;

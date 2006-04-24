@@ -5,6 +5,8 @@ enum {
 	DBFS_BLK_ID_LEN		= 20,
 
 	DBFS_UNLINK_DIR		= (1 << 0),
+
+	DBFS_ROOT_INO		= 1,
 };
 
 enum {

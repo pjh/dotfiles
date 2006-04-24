@@ -41,7 +41,7 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	st.st_mtime	= GUINT64_FROM_LE(ino->raw_inode->mtime);
 	st.st_ctime	= GUINT64_FROM_LE(ino->raw_inode->ctime);
 
-	fuse_reply_attr(req, &st, 1.0);
+	fuse_reply_attr(req, &st, 2.0);
 
 	dbfs_inode_free(ino);
 }
