@@ -232,7 +232,7 @@ static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
 		*itype = IT_REG;
 	else
 		return -EINVAL;
-	
+
 	return 0;
 }
 
