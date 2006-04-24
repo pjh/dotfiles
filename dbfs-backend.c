@@ -103,6 +103,28 @@ int dbfs_read_dir(guint64 ino, DBT *val)
 	return rc;
 }
 
+#if 0
+static int dbfs_write_dir(guint64 ino, DBT *val_in, size_t size)
+{
+	DBT key, val;
+	char key_str[32];
+
+	memset(&key, 0, sizeof(key));
+	memcpy(&val, val_in, sizeof(val));
+
+	val.size = size;
+
+	sprintf(key_str, "/dir/%Lu", (unsigned long long) ino);
+
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	return db_meta->put(db_meta, NULL, &key, &val, 0);
+
+	/* TODO: touch inode */
+}
+#endif
+
 int dbfs_read_link(guint64 ino, DBT *val)
 {
 	DBT key;
