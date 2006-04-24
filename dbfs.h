@@ -71,5 +71,7 @@ extern int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata);
 extern int dbfs_lookup(guint64 parent, const char *name, guint64 *ino);
 extern int dbfs_unlink(guint64 parent, const char *name, unsigned long flags);
 extern void dbfs_inode_free(struct dbfs_inode *ino);
+extern int init_db(void);
+extern void exit_db(void);
 
 #endif /* __DBFS_H__ */

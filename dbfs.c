@@ -233,14 +233,37 @@ static void hello_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 #endif
 
 static struct fuse_lowlevel_ops dbfs_ops = {
+	.init		= NULL,
+	.destroy	= NULL,
 	.lookup		= dbfs_op_lookup,
+	.forget		= NULL,
 	.getattr	= dbfs_op_getattr,
+	.setattr	= NULL,
 	.readlink	= dbfs_op_readlink,
+	.mknod		= NULL,
+	.mkdir		= NULL,
 	.unlink		= dbfs_op_unlink,
 	.rmdir		= dbfs_op_rmdir,
+	.symlink	= NULL,
+	.rename		= NULL,
+	.link		= NULL,
+	.open		= NULL,
+	.read		= NULL,
+	.write		= NULL,
+	.flush		= NULL,
+	.release	= NULL,
+	.fsync		= NULL,
 	.opendir	= dbfs_op_opendir,
 	.readdir	= dbfs_op_readdir,
 	.releasedir	= dbfs_op_releasedir,
+	.fsyncdir	= NULL,
+	.statfs		= NULL,
+	.setxattr	= NULL,
+	.getxattr	= NULL,
+	.listxattr	= NULL,
+	.removexattr	= NULL,
+	.access		= NULL,
+	.create		= NULL,
 };
 
 int main(int argc, char *argv[])
@@ -249,6 +272,8 @@ int main(int argc, char *argv[])
 	char *mountpoint;
 	int err = -1;
 	int fd;
+
+	init_db();
 
 	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 &&
 	    (fd = fuse_mount(mountpoint, &args)) != -1) {
@@ -271,6 +296,8 @@ int main(int argc, char *argv[])
 	}
 	fuse_unmount(mountpoint);
 	fuse_opt_free_args(&args);
+
+	exit_db();
 
 	return err ? 1 : 0;
 }

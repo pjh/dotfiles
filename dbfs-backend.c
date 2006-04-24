@@ -26,14 +26,74 @@ struct dbfs_unlink_info {
 	void			*end_ent;
 };
 
-static DB_ENV *env;
-static DB *db_data;
+static DB_ENV *db_env;
 static DB *db_meta;
 
-void dbfs_dummy1(void)
+int init_db(void)
 {
-	(void) env;
-	(void) db_data;
+	const char *db_home;
+	int rc;
+
+	/*
+	 * open DB environment
+	 */
+
+	db_home = getenv("DB_HOME");
+	if (!db_home) {
+		fprintf(stderr, "DB_HOME not set\n");
+		return 1;
+	}
+
+	rc = db_env_create(&db_env, 0);
+	if (rc) {
+		fprintf(stderr, "db_env_create failed: %d\n", rc);
+		return 1;
+	}
+
+	db_env->set_errfile(db_env, stderr);
+	db_env->set_errpfx(db_env, "dbfs");
+
+	rc = db_env->open(db_env, db_home,
+			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
+			  DB_INIT_TXN | DB_RECOVER | DB_CREATE, 0666);
+	if (rc) {
+		db_env->err(db_env, rc, "db_env->open");
+		return 1;
+	}
+
+	/*
+	 * Open metadata database
+	 */
+
+	rc = db_create(&db_meta, db_env, 0);
+	if (rc) {
+		db_env->err(db_env, rc, "db_create");
+		goto err_out;
+	}
+
+	rc = db_meta->open(db_meta, NULL, "metadata", NULL,
+			   DB_HASH, DB_AUTO_COMMIT | DB_CREATE, 0666);
+	if (rc) {
+		db_meta->err(db_meta, rc, "db_meta->open");
+		goto err_out_meta;
+	}
+
+	return 0;
+
+err_out_meta:
+	db_meta->close(db_meta, 0);
+err_out:
+	db_env->close(db_env, 0);
+	return 1;
+}
+
+void exit_db(void)
+{
+	db_meta->close(db_meta, 0);
+	db_env->close(db_env, 0);
+
+	db_env = NULL;
+	db_meta = NULL;
 }
 
 void dbfs_inode_free(struct dbfs_inode *ino)
@@ -72,7 +132,7 @@ static int dbfs_inode_del(struct dbfs_inode *ino)
 	case IT_REG:
 		/* FIXME */
 		break;
-	
+
 	case IT_DIR:
 		sprintf(key, "/dir/%Lu", (unsigned long long) ino_n);
 		rc = dbmeta_del(key);
