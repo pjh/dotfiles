@@ -274,7 +274,29 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	return 0;
 }
 
-int dbfs_read_dir(guint64 ino, DBT *val)
+int dbfs_symlink_read(guint64 ino, DBT *val)
+{
+	DBT key;
+	char key_str[32];
+	int rc;
+
+	memset(&key, 0, sizeof(key));
+	memset(val, 0, sizeof(*val));
+
+	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
+
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	val->flags = DB_DBT_MALLOC;
+
+	rc = db_meta->get(db_meta, NULL, &key, val, 0);
+	if (rc == DB_NOTFOUND)
+		return -EINVAL;
+	return rc ? -EIO : 0;
+}
+
+int dbfs_dir_read(guint64 ino, DBT *val)
 {
 	DBT key;
 	char key_str[32];
@@ -296,7 +318,7 @@ int dbfs_read_dir(guint64 ino, DBT *val)
 	return rc ? -EIO : 0;
 }
 
-static int dbfs_write_dir(guint64 ino, DBT *val)
+static int dbfs_dir_write(guint64 ino, DBT *val)
 {
 	DBT key;
 	char key_str[32];
@@ -309,28 +331,6 @@ static int dbfs_write_dir(guint64 ino, DBT *val)
 	key.size = strlen(key_str);
 
 	return db_meta->put(db_meta, NULL, &key, val, 0) ? -EIO : 0;
-}
-
-int dbfs_read_link(guint64 ino, DBT *val)
-{
-	DBT key;
-	char key_str[32];
-	int rc;
-
-	memset(&key, 0, sizeof(key));
-	memset(val, 0, sizeof(*val));
-
-	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
-
-	key.data = key_str;
-	key.size = strlen(key_str);
-
-	val->flags = DB_DBT_MALLOC;
-
-	rc = db_meta->get(db_meta, NULL, &key, val, 0);
-	if (rc == DB_NOTFOUND)
-		return -EINVAL;
-	return rc ? -EIO : 0;
 }
 
 int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
@@ -382,7 +382,7 @@ static int dbfs_dir_scan1(struct dbfs_dirent *de, void *userdata)
 	return 0;
 }
 
-int dbfs_lookup(guint64 parent, const char *name, guint64 *ino)
+int dbfs_dir_lookup(guint64 parent, const char *name, guint64 *ino)
 {
 	struct dbfs_dirscan_info di;
 	struct dbfs_dirent *de;
@@ -392,7 +392,7 @@ int dbfs_lookup(guint64 parent, const char *name, guint64 *ino)
 	*ino = 0;
 
 	/* read directory from database */
-	rc = dbfs_read_dir(parent, &val);
+	rc = dbfs_dir_read(parent, &val);
 	if (rc)
 		return rc;
 
@@ -424,7 +424,7 @@ static int dbfs_dirent_del(guint64 parent, const char *name)
 	DBT dir_val;
 	int rc, del_len, tail_len;
 
-	rc = dbfs_read_dir(parent, &dir_val);
+	rc = dbfs_dir_read(parent, &dir_val);
 	if (rc)
 		return rc;
 
@@ -445,7 +445,7 @@ static int dbfs_dirent_del(guint64 parent, const char *name)
 	memmove(ui.start_ent, ui.end_ent, tail_len);
 	dir_val.size -= del_len;
 
-	rc = dbfs_write_dir(parent, &dir_val);
+	rc = dbfs_dir_write(parent, &dir_val);
 
 	free(dir_val.data);
 
@@ -459,7 +459,7 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 	int rc, is_dir;
 	guint32 nlink;
 
-	rc = dbfs_lookup(parent, name, &ino_n);
+	rc = dbfs_dir_lookup(parent, name, &ino_n);
 	if (rc)
 		goto out;
 
@@ -498,5 +498,13 @@ out_ino:
 	dbfs_inode_free(ino);
 out:
 	return rc;
+}
+
+int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
+	       struct dbfs_inode **ino)
+{
+	/* FIXME */
+	*ino = NULL;
+	return -EIO;
 }
 

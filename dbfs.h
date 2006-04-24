@@ -65,13 +65,16 @@ struct dbfs_inode {
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 
 extern int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out);
-extern int dbfs_read_dir(guint64 ino, DBT *val);
-extern int dbfs_read_link(guint64 ino, DBT *val);
+extern int dbfs_dir_read(guint64 ino, DBT *val);
+extern int dbfs_symlink_read(guint64 ino, DBT *val);
 extern int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata);
-extern int dbfs_lookup(guint64 parent, const char *name, guint64 *ino);
+extern int dbfs_dir_lookup(guint64 parent, const char *name, guint64 *ino);
 extern int dbfs_unlink(guint64 parent, const char *name, unsigned long flags);
 extern void dbfs_inode_free(struct dbfs_inode *ino);
 extern void dbfs_init(void *userdata);
 extern void dbfs_exit(void *userdata);
+extern int dbfs_mknod(guint64 parent, const char *name,
+		      guint32 mode, guint64 rdev,
+		      struct dbfs_inode **ino);
 
 #endif /* __DBFS_H__ */

@@ -20,7 +20,7 @@ static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	int rc;
 
 	/* lookup inode in parent directory */
-	rc = dbfs_lookup(parent, name, &ino);
+	rc = dbfs_dir_lookup(parent, name, &ino);
 	if (rc) {
 		fuse_reply_err(req, rc);
 		return;
@@ -81,7 +81,7 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	char *s;
 
 	/* read link from database */
-	rc = dbfs_read_link(ino, &val);
+	rc = dbfs_symlink_read(ino, &val);
 	if (rc) {
 		fuse_reply_err(req, rc);
 		return;
@@ -93,6 +93,39 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	g_free(s);
 
 	free(val.data);
+}
+
+static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
+			  mode_t mode, dev_t rdev)
+{
+	struct fuse_entry_param ent;
+	struct dbfs_inode *ino;
+	int rc;
+
+	rc = dbfs_mknod(parent, name, mode, rdev, &ino);
+	if (rc) {
+		fuse_reply_err(req, rc);
+		return;
+	}
+
+	memset(&ent, 0, sizeof(ent));
+	ent.ino = GUINT64_FROM_LE(ino->raw_inode->ino);
+	ent.generation = GUINT64_FROM_LE(ino->raw_inode->version);
+	ent.attr_timeout = 2.0;
+	ent.entry_timeout = 2.0;
+
+	fuse_reply_entry(req, &ent);
+
+	dbfs_inode_free(ino);
+}
+
+static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
+			  mode_t mode)
+{
+	mode &= (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID | S_ISVTX);
+	mode |= S_IFDIR;
+
+	return dbfs_op_mknod(req, parent, name, mode, 0);
 }
 
 static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -118,12 +151,12 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	DBT val;
 
 	/* get inode number associated with name */
-	rc = dbfs_lookup(parent, name, &ino_n);
+	rc = dbfs_dir_lookup(parent, name, &ino_n);
 	if (rc)
 		goto err_out;
 
 	/* read dir associated with name */
-	rc = dbfs_read_dir(ino_n, &val);
+	rc = dbfs_dir_read(ino_n, &val);
 	if (rc)
 		goto err_out;
 
@@ -153,7 +186,7 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 	int rc;
 
 	/* read directory from database */
-	rc = dbfs_read_dir(ino, &val);
+	rc = dbfs_dir_read(ino, &val);
 	if (rc) {
 		fuse_reply_err(req, rc);
 		return;
@@ -269,8 +302,8 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.getattr	= dbfs_op_getattr,
 	.setattr	= NULL,
 	.readlink	= dbfs_op_readlink,
-	.mknod		= NULL,
-	.mkdir		= NULL,
+	.mknod		= dbfs_op_mknod,
+	.mkdir		= dbfs_op_mkdir,
 	.unlink		= dbfs_op_unlink,
 	.rmdir		= dbfs_op_rmdir,
 	.symlink	= NULL,
