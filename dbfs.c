@@ -13,6 +13,29 @@
 #include <db.h>
 #include "dbfs.h"
 
+static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	struct fuse_entry_param e;
+	guint64 ino;
+	int rc;
+
+	/* lookup inode in parent directory */
+	rc = dbfs_lookup(parent, name, &ino);
+	if (rc) {
+		fuse_reply_err(req, rc);
+		return;
+	}
+
+	/* send reply; timeout of 2.0 is just a guess */
+
+	memset(&e, 0, sizeof(e));
+	e.ino = ino;
+	e.attr_timeout = 2.0;
+	e.entry_timeout = 2.0;
+
+	fuse_reply_entry(req, &e);
+}
+
 static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 			     struct fuse_file_info *fi)
 {
@@ -72,27 +95,55 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	free(val.data);
 }
 
-static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
+static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
-	struct fuse_entry_param e;
-	guint64 ino;
-	int rc;
-
-	/* lookup inode in parent directory */
-	rc = dbfs_lookup(parent, name, &ino);
-	if (rc) {
+	int rc = dbfs_unlink(parent, name, 0);
+	if (rc)
 		fuse_reply_err(req, rc);
-		return;
-	}
+}
 
-	/* send reply; timeout of 2.0 is just a guess */
+static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
+{
+	if ((de->namelen == 1) && (!memcmp(de->name, ".", 1)))
+		return 0;
+	if ((de->namelen == 2) && (!memcmp(de->name, "..", 2)))
+		return 0;
+	return ENOTEMPTY;
+}
 
-	memset(&e, 0, sizeof(e));
-	e.ino = ino;
-	e.attr_timeout = 2.0;
-	e.entry_timeout = 2.0;
+static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+	guint64 ino_n;
+	int rc;
+	DBT val;
 
-	fuse_reply_entry(req, &e);
+	/* get inode number associated with name */
+	rc = dbfs_lookup(parent, name, &ino_n);
+	if (rc)
+		goto err_out;
+
+	/* read dir associated with name */
+	rc = dbfs_read_dir(ino_n, &val);
+	if (rc)
+		goto err_out;
+
+	/* make sure dir only contains "." and ".." */
+	rc = dbfs_dir_foreach(val.data, dbfs_chk_empty, NULL);
+	free(val.data);
+
+	/* if dbfs_chk_empty() returns non-zero, dir is not empty */
+	if (rc)
+		goto err_out;
+
+	/* dir is empty, go ahead and unlink */
+	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
+	if (rc)
+		goto err_out;
+
+	return;
+
+err_out:
+	fuse_reply_err(req, rc);
 }
 
 static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
@@ -184,57 +235,6 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	/* send reply */
 	reply_buf_limited(req, b.p, b.size, off, size);
 	free(b.p);
-}
-
-static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
-{
-	if ((de->namelen == 1) && (!memcmp(de->name, ".", 1)))
-		return 0;
-	if ((de->namelen == 2) && (!memcmp(de->name, "..", 2)))
-		return 0;
-	return ENOTEMPTY;
-}
-
-static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
-{
-	int rc = dbfs_unlink(parent, name, 0);
-	if (rc)
-		fuse_reply_err(req, rc);
-}
-
-static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
-{
-	guint64 ino_n;
-	int rc;
-	DBT val;
-
-	/* get inode number associated with name */
-	rc = dbfs_lookup(parent, name, &ino_n);
-	if (rc)
-		goto err_out;
-
-	/* read dir associated with name */
-	rc = dbfs_read_dir(ino_n, &val);
-	if (rc)
-		goto err_out;
-
-	/* make sure dir only contains "." and ".." */
-	rc = dbfs_dir_foreach(val.data, dbfs_chk_empty, NULL);
-	free(val.data);
-
-	/* if dbfs_chk_empty() returns non-zero, dir is not empty */
-	if (rc)
-		goto err_out;
-
-	/* dir is empty, go ahead and unlink */
-	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
-	if (rc)
-		goto err_out;
-
-	return;
-
-err_out:
-	fuse_reply_err(req, rc);
 }
 
 #if 0
