@@ -1,6 +1,8 @@
 #ifndef __DBFS_H__
 #define __DBFS_H__
 
+#include <glib.h>
+
 enum {
 	DBFS_BLK_ID_LEN		= 20,
 
@@ -61,6 +63,14 @@ struct dbfs_inode {
 	struct dbfs_raw_inode	*raw_inode;
 };
 
+struct dbfs {
+	const char		*home;
+	const char		*passwd;
+
+	DB_ENV			*env;
+	DB			*meta;
+};
+
 
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 
@@ -76,5 +86,11 @@ extern void dbfs_exit(void *userdata);
 extern int dbfs_mknod(guint64 parent, const char *name,
 		      guint32 mode, guint64 rdev,
 		      struct dbfs_inode **ino);
+
+extern int dbfs_open(struct dbfs *fs);
+extern void dbfs_close(struct dbfs *fs);
+extern struct dbfs *dbfs_new(void);
+extern void dbfs_free(struct dbfs *fs);
+extern struct dbfs *gfs;
 
 #endif /* __DBFS_H__ */

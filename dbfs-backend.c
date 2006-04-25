@@ -1,6 +1,4 @@
 
-#define FUSE_USE_VERSION 25
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -24,112 +22,6 @@ struct dbfs_dirscan_info {
 	void			*end_ent;
 };
 
-static DB_ENV *db_env;
-static DB *db_meta;
-
-void dbfs_init(void *userdata)
-{
-	const char *db_home, *db_password;
-	int rc;
-	unsigned int flags = 0;
-
-	/*
-	 * open DB environment
-	 */
-
-	db_home = getenv("DB_HOME");
-	if (!db_home) {
-		fprintf(stderr, "DB_HOME not set\n");
-		exit(1);
-	}
-
-	/* this isn't a very secure way to handle passwords */
-	db_password = getenv("DB_PASSWORD");
-
-	rc = db_env_create(&db_env, 0);
-	if (rc) {
-		fprintf(stderr, "db_env_create failed: %d\n", rc);
-		exit(1);
-	}
-
-	/* stderr is wrong; should use syslog instead */
-	db_env->set_errfile(db_env, stderr);
-	db_env->set_errpfx(db_env, "dbfs");
-
-	if (db_password) {
-		flags |= DB_ENCRYPT;
-		rc = db_env->set_encrypt(db_env, db_password, DB_ENCRYPT_AES);
-		if (rc) {
-			db_env->err(db_env, rc, "db_env->set_encrypt");
-			goto err_out;
-		}
-
-		/* this isn't a very good way to shroud the password */
-		if (putenv("DB_PASSWORD=X"))
-			perror("putenv (SECURITY WARNING)");
-	}
-
-	/* init DB transactional environment, stored in directory db_home */
-	rc = db_env->open(db_env, db_home,
-			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
-			  DB_INIT_TXN | DB_RECOVER | DB_CREATE | flags, 0666);
-	if (rc) {
-		db_env->err(db_env, rc, "db_env->open");
-		goto err_out;
-	}
-
-	/*
-	 * Open metadata database
-	 */
-
-	rc = db_create(&db_meta, db_env, 0);
-	if (rc) {
-		db_env->err(db_env, rc, "db_create");
-		goto err_out;
-	}
-
-	rc = db_meta->open(db_meta, NULL, "metadata", NULL,
-			   DB_HASH, DB_AUTO_COMMIT | DB_CREATE | flags, 0666);
-	if (rc) {
-		db_meta->err(db_meta, rc, "db_meta->open");
-		goto err_out_meta;
-	}
-
-	/* our data items are small, so use the smallest possible page
-	 * size.  This is a guess, and should be verified by looking at
-	 * overflow pages and other DB statistics.
-	 */
-	rc = db_meta->set_pagesize(db_meta, 512);
-	if (rc) {
-		db_meta->err(db_meta, rc, "db_meta->set_pagesize");
-		goto err_out_meta;
-	}
-
-	/* fix everything as little endian */
-	rc = db_meta->set_lorder(db_meta, 1234);
-	if (rc) {
-		db_meta->err(db_meta, rc, "db_meta->set_lorder");
-		goto err_out_meta;
-	}
-
-	return;
-
-err_out_meta:
-	db_meta->close(db_meta, 0);
-err_out:
-	db_env->close(db_env, 0);
-	exit(1);
-}
-
-void dbfs_exit(void *userdata)
-{
-	db_meta->close(db_meta, 0);
-	db_env->close(db_env, 0);
-
-	db_env = NULL;
-	db_meta = NULL;
-}
-
 void dbfs_inode_free(struct dbfs_inode *ino)
 {
 	free(ino->raw_inode);
@@ -145,7 +37,7 @@ static int dbmeta_del(const char *key_str)
 	key.size = strlen(key_str);
 
 	/* delete key 'key_str' from metadata database */
-	rc = db_meta->del(db_meta, NULL, &key, 0);
+	rc = gfs->meta->del(gfs->meta, NULL, &key, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
 	if (rc)
@@ -213,7 +105,7 @@ static int dbfs_inode_write(struct dbfs_inode *ino)
 	raw_ino->version = GUINT64_TO_LE(
 		GUINT64_FROM_LE(raw_ino->version) + 1);
 
-	return db_meta->get(db_meta, NULL, &key, &val, 0) ? -EIO : 0;
+	return gfs->meta->get(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
 static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
@@ -255,7 +147,7 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 
 	val.flags = DB_DBT_MALLOC;
 
-	rc = db_meta->get(db_meta, NULL, &key, &val, 0);
+	rc = gfs->meta->get(gfs->meta, NULL, &key, &val, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
 	if (rc)
@@ -296,7 +188,7 @@ int dbfs_symlink_read(guint64 ino, DBT *val)
 
 	val->flags = DB_DBT_MALLOC;
 
-	rc = db_meta->get(db_meta, NULL, &key, val, 0);
+	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
 	if (rc == DB_NOTFOUND)
 		return -EINVAL;
 	return rc ? -EIO : 0;
@@ -318,7 +210,7 @@ int dbfs_dir_read(guint64 ino, DBT *val)
 
 	val->flags = DB_DBT_MALLOC;
 
-	rc = db_meta->get(db_meta, NULL, &key, val, 0);
+	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOTDIR;
 	return rc ? -EIO : 0;
@@ -336,7 +228,7 @@ static int dbfs_dir_write(guint64 ino, DBT *val)
 	key.data = key_str;
 	key.size = strlen(key_str);
 
-	return db_meta->put(db_meta, NULL, &key, val, 0) ? -EIO : 0;
+	return gfs->meta->put(gfs->meta, NULL, &key, val, 0) ? -EIO : 0;
 }
 
 int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)

@@ -10,6 +10,32 @@
 #include <db.h>
 #include "dbfs.h"
 
+static void dbfs_op_init(void *userdata)
+{
+	struct dbfs **fs_io = userdata;
+	struct dbfs *fs;
+	int rc;
+
+	fs = dbfs_new();
+
+	rc = dbfs_open(fs);
+	if (rc)
+		abort();			/* TODO: improve */
+
+	*fs_io = fs;
+}
+
+static void dbfs_op_destroy(void *userdata)
+{
+	struct dbfs **fs_io = userdata;
+	struct dbfs *fs = *fs_io;
+
+	dbfs_close(fs);
+	dbfs_free(fs);
+
+	*fs_io = NULL;
+}
+
 static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	struct fuse_entry_param e;
@@ -311,8 +337,8 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 }
 
 static struct fuse_lowlevel_ops dbfs_ops = {
-	.init		= dbfs_init,
-	.destroy	= dbfs_exit,
+	.init		= dbfs_op_init,
+	.destroy	= dbfs_op_destroy,
 	.lookup		= dbfs_op_lookup,
 	.forget		= NULL,
 	.getattr	= dbfs_op_getattr,

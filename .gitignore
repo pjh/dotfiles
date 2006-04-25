@@ -21,6 +21,7 @@ stamp-h1
 
 # app-specific
 ndbfs
+mkdbfs
 dbfs
 dbfs-config.h*
 

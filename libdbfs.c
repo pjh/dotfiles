@@ -1,0 +1,147 @@
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include <glib.h>
+#include <db.h>
+#include "dbfs.h"
+
+struct dbfs *gfs;
+
+int dbfs_open(struct dbfs *fs)
+{
+	const char *db_home, *db_password;
+	int rc;
+	unsigned int flags = 0;
+
+	/*
+	 * open DB environment
+	 */
+
+	db_home = fs->home;
+	if (!db_home) {
+		fprintf(stderr, "DB_HOME not set\n");
+		return -EINVAL;
+	}
+
+	/* this isn't a very secure way to handle passwords */
+	db_password = fs->passwd;
+
+	rc = db_env_create(&fs->env, 0);
+	if (rc) {
+		fprintf(stderr, "fs->env_create failed: %d\n", rc);
+		return rc;
+	}
+
+	/* stderr is wrong; should use syslog instead */
+	fs->env->set_errfile(fs->env, stderr);
+	fs->env->set_errpfx(fs->env, "dbfs");
+
+	if (db_password) {
+		flags |= DB_ENCRYPT;
+		rc = fs->env->set_encrypt(fs->env, db_password, DB_ENCRYPT_AES);
+		if (rc) {
+			fs->env->err(fs->env, rc, "fs->env->set_encrypt");
+			goto err_out;
+		}
+
+		/* this isn't a very good way to shroud the password */
+		if (putenv("DB_PASSWORD=X"))
+			perror("putenv (SECURITY WARNING)");
+	}
+
+	/* init DB transactional environment, stored in directory db_home */
+	rc = fs->env->open(fs->env, db_home,
+			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
+			  DB_INIT_TXN | DB_RECOVER | DB_CREATE | flags, 0666);
+	if (rc) {
+		fs->env->err(fs->env, rc, "fs->env->open");
+		goto err_out;
+	}
+
+	/*
+	 * Open metadata database
+	 */
+
+	rc = db_create(&fs->meta, fs->env, 0);
+	if (rc) {
+		fs->env->err(fs->env, rc, "db_create");
+		goto err_out;
+	}
+
+	rc = fs->meta->open(fs->meta, NULL, "metadata", NULL,
+			   DB_HASH, DB_AUTO_COMMIT | flags, 0666);
+	if (rc) {
+		fs->meta->err(fs->meta, rc, "fs->meta->open");
+		goto err_out_meta;
+	}
+
+	/* our data items are small, so use the smallest possible page
+	 * size.  This is a guess, and should be verified by looking at
+	 * overflow pages and other DB statistics.
+	 */
+	rc = fs->meta->set_pagesize(fs->meta, 512);
+	if (rc) {
+		fs->meta->err(fs->meta, rc, "fs->meta->set_pagesize");
+		goto err_out_meta;
+	}
+
+	/* fix everything as little endian */
+	rc = fs->meta->set_lorder(fs->meta, 1234);
+	if (rc) {
+		fs->meta->err(fs->meta, rc, "fs->meta->set_lorder");
+		goto err_out_meta;
+	}
+
+	gfs = fs;
+	return 0;
+
+err_out_meta:
+	fs->meta->close(fs->meta, 0);
+err_out:
+	fs->env->close(fs->env, 0);
+	return rc;
+}
+
+void dbfs_close(struct dbfs *fs)
+{
+	fs->meta->close(fs->meta, 0);
+	fs->env->close(fs->env, 0);
+
+	fs->env = NULL;
+	fs->meta = NULL;
+}
+
+struct dbfs *dbfs_new(void)
+{
+	struct dbfs *fs;
+	char *passwd;
+
+	fs = g_new0(struct dbfs, 1);
+	if (!fs)
+		return NULL;
+	
+	fs->home = getenv("DB_HOME");
+	if (!fs->home)
+		goto err_out;
+
+	passwd = getenv("DB_PASSWORD");
+	if (passwd) {
+		fs->passwd = strdup(passwd);
+		if (putenv("DB_PASSWORD=X"))
+			perror("putenv DB_PASSWORD (SECURITY WARNING)");
+	}
+
+	return fs;
+
+err_out:
+	g_free(fs);
+	return NULL;
+}
+
+void dbfs_free(struct dbfs *fs)
+{
+	g_free(fs);
+}
+
