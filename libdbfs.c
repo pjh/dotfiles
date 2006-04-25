@@ -46,9 +46,9 @@ int dbfs_open(struct dbfs *fs)
 			goto err_out;
 		}
 
-		/* this isn't a very good way to shroud the password */
-		if (putenv("DB_PASSWORD=X"))
-			perror("putenv (SECURITY WARNING)");
+		memset(fs->passwd, 0, strlen(fs->passwd));
+		free(fs->passwd);
+		fs->passwd = NULL;
 	}
 
 	/* init DB transactional environment, stored in directory db_home */
@@ -131,6 +131,8 @@ struct dbfs *dbfs_new(void)
 	passwd = getenv("DB_PASSWORD");
 	if (passwd) {
 		fs->passwd = strdup(passwd);
+
+		/* this isn't a very good way to shroud the password */
 		if (putenv("DB_PASSWORD=X"))
 			perror("putenv DB_PASSWORD (SECURITY WARNING)");
 	}

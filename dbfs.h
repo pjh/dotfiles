@@ -65,7 +65,7 @@ struct dbfs_inode {
 
 struct dbfs {
 	const char		*home;
-	const char		*passwd;
+	char			*passwd;
 
 	DB_ENV			*env;
 	DB			*meta;
