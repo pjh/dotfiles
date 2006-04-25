@@ -23,12 +23,6 @@ struct dbfs_dirscan_info {
 	void			*end_ent;
 };
 
-void dbfs_inode_free(struct dbfs_inode *ino)
-{
-	free(ino->raw_inode);
-	g_free(ino);
-}
-
 static int dbmeta_del(const char *key_str)
 {
 	DBT key;
@@ -44,6 +38,32 @@ static int dbmeta_del(const char *key_str)
 	if (rc)
 		return -EIO;
 	return 0;
+}
+
+static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
+{
+	if (S_ISDIR(mode))
+		*itype = IT_DIR;
+	else if (S_ISCHR(mode) || S_ISBLK(mode))
+		*itype = IT_DEV;
+	else if (S_ISFIFO(mode))
+		*itype = IT_FIFO;
+	else if (S_ISLNK(mode))
+		*itype = IT_SYMLINK;
+	else if (S_ISSOCK(mode))
+		*itype = IT_SOCKET;
+	else if (S_ISREG(mode))
+		*itype = IT_REG;
+	else
+		return -EINVAL;
+
+	return 0;
+}
+
+void dbfs_inode_free(struct dbfs_inode *ino)
+{
+	free(ino->raw_inode);
+	g_free(ino);
 }
 
 static int dbfs_inode_del(struct dbfs_inode *ino)
@@ -109,26 +129,6 @@ static int dbfs_inode_write(struct dbfs_inode *ino)
 	return gfs->meta->get(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
-static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
-{
-	if (S_ISDIR(mode))
-		*itype = IT_DIR;
-	else if (S_ISCHR(mode) || S_ISBLK(mode))
-		*itype = IT_DEV;
-	else if (S_ISFIFO(mode))
-		*itype = IT_FIFO;
-	else if (S_ISLNK(mode))
-		*itype = IT_SYMLINK;
-	else if (S_ISSOCK(mode))
-		*itype = IT_SOCKET;
-	else if (S_ISREG(mode))
-		*itype = IT_REG;
-	else
-		return -EINVAL;
-
-	return 0;
-}
-
 int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 {
 	int rc;
@@ -173,26 +173,52 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	return 0;
 }
 
-int dbfs_symlink_read(guint64 ino, DBT *val)
+static int dbfs_inode_next(struct dbfs_inode **ino_out)
 {
-	DBT key;
-	char key_str[32];
+	struct dbfs_inode *ino;
 	int rc;
+	guint64 curtime, start = gfs->next_inode;
 
-	memset(&key, 0, sizeof(key));
-	memset(val, 0, sizeof(*val));
+	*ino_out = NULL;
 
-	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
+	/* loop through inode numbers starting at gfs->next_inode,
+	 * and stop on first error.  Error ENOENT means the
+	 * inode number was not found, and can therefore be used
+	 * as the next free inode number.
+	 */
+	while (1) {
+		rc = dbfs_inode_read(gfs->next_inode, &ino);
+		if (rc)
+			break;
 
-	key.data = key_str;
-	key.size = strlen(key_str);
+		dbfs_inode_free(ino);
+		gfs->next_inode++;
+		if (gfs->next_inode < 2)
+			gfs->next_inode = 2;
+		if (gfs->next_inode == start) {	/* loop */
+			rc = -EBUSY;
+			break;
+		}
+	}
 
-	val->flags = DB_DBT_MALLOC;
+	if (rc != -ENOENT)
+		return rc;
 
-	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
-	if (rc == DB_NOTFOUND)
-		return -EINVAL;
-	return rc ? -EIO : 0;
+	/* allocate an empty inode */
+	ino = g_new0(struct dbfs_inode, 1);
+	ino->raw_ino_size = sizeof(struct dbfs_raw_inode);
+	ino->raw_inode = malloc(ino->raw_ino_size);
+	memset(ino->raw_inode, 0, ino->raw_ino_size);
+
+	ino->raw_inode->ino = GUINT64_TO_LE(gfs->next_inode++);
+	curtime = GUINT64_TO_LE(time(NULL));
+	ino->raw_inode->ctime = curtime;
+	ino->raw_inode->atime = curtime;
+	ino->raw_inode->mtime = curtime;
+
+	*ino_out = ino;
+
+	return 0;
 }
 
 int dbfs_dir_read(guint64 ino, DBT *val)
@@ -350,111 +376,6 @@ static int dbfs_dirent_del(guint64 parent, const char *name)
 	return rc;
 }
 
-int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
-{
-	struct dbfs_inode *ino;
-	guint64 ino_n;
-	int rc, is_dir;
-	guint32 nlink;
-
-	rc = dbfs_dir_lookup(parent, name, &ino_n);
-	if (rc)
-		goto out;
-
-	if (ino_n == DBFS_ROOT_INO) {
-		rc = -EINVAL;
-		goto out;
-	}
-
-	rc = dbfs_inode_read(ino_n, &ino);
-	if (rc)
-		goto out;
-
-	is_dir = S_ISDIR(GUINT32_FROM_LE(ino->raw_inode->mode));
-	if (is_dir && (!(flags & DBFS_UNLINK_DIR))) {
-		rc = -EISDIR;
-		goto out_ino;
-	}
-
-	rc = dbfs_dirent_del(parent, name);
-	if (rc)
-		goto out_ino;
-
-	nlink = GUINT32_FROM_LE(ino->raw_inode->nlink);
-	if (is_dir && (nlink <= 2))
-		nlink = 0;
-	else
-		nlink--;
-	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
-
-	if (!nlink)
-		rc = dbfs_inode_del(ino);
-	else
-		rc = dbfs_inode_write(ino);
-
-out_ino:
-	dbfs_inode_free(ino);
-out:
-	return rc;
-}
-
-static int dbfs_name_validate(const char *name)
-{
-	if (strchr(name, '/'))
-		return -EINVAL;
-	if (!g_utf8_validate(name, -1, NULL))
-		return -EINVAL;
-	return 0;
-}
-
-static int dbfs_inode_next(struct dbfs_inode **ino_out)
-{
-	struct dbfs_inode *ino;
-	int rc;
-	guint64 curtime, start = gfs->next_inode;
-
-	*ino_out = NULL;
-
-	/* loop through inode numbers starting at gfs->next_inode,
-	 * and stop on first error.  Error ENOENT means the
-	 * inode number was not found, and can therefore be used
-	 * as the next free inode number.
-	 */
-	while (1) {
-		rc = dbfs_inode_read(gfs->next_inode, &ino);
-		if (rc)
-			break;
-
-		dbfs_inode_free(ino);
-		gfs->next_inode++;
-		if (gfs->next_inode < 2)
-			gfs->next_inode = 2;
-		if (gfs->next_inode == start) {	/* loop */
-			rc = -EBUSY;
-			break;
-		}
-	}
-
-	if (rc != -ENOENT)
-		return rc;
-
-	/* allocate an empty inode */
-	ino = g_new0(struct dbfs_inode, 1);
-	ino->raw_ino_size = sizeof(struct dbfs_raw_inode);
-	ino->raw_inode = malloc(ino->raw_ino_size);
-	memset(ino->raw_inode, 0, ino->raw_ino_size);
-
-	ino->raw_inode->ino = GUINT64_TO_LE(gfs->next_inode++);
-	curtime = GUINT64_TO_LE(time(NULL));
-	ino->raw_inode->ctime = curtime;
-	ino->raw_inode->atime = curtime;
-	ino->raw_inode->mtime = curtime;
-
-	*ino_out = ino;
-
-	return 0;
-}
-
 static int dbfs_dir_new(guint64 parent, guint64 ino_n, struct dbfs_inode *ino)
 {
 	void *mem, *p, *q;
@@ -604,6 +525,85 @@ static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 out:
 	free(val.data);
 	return rc;
+}
+
+int dbfs_symlink_read(guint64 ino, DBT *val)
+{
+	DBT key;
+	char key_str[32];
+	int rc;
+
+	memset(&key, 0, sizeof(key));
+	memset(val, 0, sizeof(*val));
+
+	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
+
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	val->flags = DB_DBT_MALLOC;
+
+	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
+	if (rc == DB_NOTFOUND)
+		return -EINVAL;
+	return rc ? -EIO : 0;
+}
+
+int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
+{
+	struct dbfs_inode *ino;
+	guint64 ino_n;
+	int rc, is_dir;
+	guint32 nlink;
+
+	rc = dbfs_dir_lookup(parent, name, &ino_n);
+	if (rc)
+		goto out;
+
+	if (ino_n == DBFS_ROOT_INO) {
+		rc = -EINVAL;
+		goto out;
+	}
+
+	rc = dbfs_inode_read(ino_n, &ino);
+	if (rc)
+		goto out;
+
+	is_dir = S_ISDIR(GUINT32_FROM_LE(ino->raw_inode->mode));
+	if (is_dir && (!(flags & DBFS_UNLINK_DIR))) {
+		rc = -EISDIR;
+		goto out_ino;
+	}
+
+	rc = dbfs_dirent_del(parent, name);
+	if (rc)
+		goto out_ino;
+
+	nlink = GUINT32_FROM_LE(ino->raw_inode->nlink);
+	if (is_dir && (nlink <= 2))
+		nlink = 0;
+	else
+		nlink--;
+	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
+
+	if (!nlink)
+		rc = dbfs_inode_del(ino);
+	else
+		rc = dbfs_inode_write(ino);
+
+out_ino:
+	dbfs_inode_free(ino);
+out:
+	return rc;
+}
+
+static int dbfs_name_validate(const char *name)
+{
+	if (strchr(name, '/'))
+		return -EINVAL;
+	if (!g_utf8_validate(name, -1, NULL))
+		return -EINVAL;
+	return 0;
 }
 
 int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
