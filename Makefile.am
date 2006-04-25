@@ -2,12 +2,9 @@
 ## Toplevel Makefile.am
 ##
 
-INCLUDES	= @GNET_CFLAGS@ @FUSE_CFLAGS@
+INCLUDES	= @GLIB_CFLAGS@ @FUSE_CFLAGS@
 
-sbin_PROGRAMS	= ndbfs dbfs mkdbfs
-
-ndbfs_SOURCES	= ndbfs.c
-ndbfs_LDADD	= @GNET_LIBS@ @FUSE_LIBS@
+sbin_PROGRAMS	= dbfs mkdbfs
 
 dbfs_SOURCES	= dbfs.c dbfs.h dbfs-backend.c libdbfs.c
 dbfs_LDADD	= @GLIB_LIBS@ @FUSE_LIBS@ @DB_LIBS@
