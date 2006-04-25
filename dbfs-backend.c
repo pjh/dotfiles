@@ -60,12 +60,6 @@ static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
 	return 0;
 }
 
-void dbfs_inode_free(struct dbfs_inode *ino)
-{
-	free(ino->raw_inode);
-	g_free(ino);
-}
-
 int dbfs_inode_del(struct dbfs_inode *ino)
 {
 	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
@@ -103,30 +97,6 @@ int dbfs_inode_del(struct dbfs_inode *ino)
 	}
 
 	return rrc;
-}
-
-static int dbfs_inode_write(struct dbfs_inode *ino)
-{
-	struct dbfs_raw_inode *raw_ino = ino->raw_inode;
-	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
-	DBT key, val;
-	char key_str[32];
-
-	memset(&key, 0, sizeof(key));
-	memset(&val, 0, sizeof(val));
-
-	sprintf(key_str, "/inode/%Lu", (unsigned long long) ino_n);
-
-	key.data = key_str;
-	key.size = strlen(key_str);
-
-	val.data = raw_ino;
-	val.size = ino->raw_ino_size;
-
-	raw_ino->version = GUINT64_TO_LE(
-		GUINT64_FROM_LE(raw_ino->version) + 1);
-
-	return gfs->meta->get(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
 int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
@@ -241,21 +211,6 @@ int dbfs_dir_read(guint64 ino, DBT *val)
 	if (rc == DB_NOTFOUND)
 		return -ENOTDIR;
 	return rc ? -EIO : 0;
-}
-
-static int dbfs_dir_write(guint64 ino, DBT *val)
-{
-	DBT key;
-	char key_str[32];
-
-	memset(&key, 0, sizeof(key));
-
-	sprintf(key_str, "/dir/%Lu", (unsigned long long) ino);
-
-	key.data = key_str;
-	key.size = strlen(key_str);
-
-	return gfs->meta->put(gfs->meta, NULL, &key, val, 0) ? -EIO : 0;
 }
 
 int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
@@ -374,76 +329,6 @@ static int dbfs_dirent_del(guint64 parent, const char *name)
 	free(dir_val.data);
 
 	return rc;
-}
-
-static int dbfs_dir_new(guint64 parent, guint64 ino_n, struct dbfs_inode *ino)
-{
-	void *mem, *p, *q;
-	struct dbfs_dirent *de;
-	size_t namelen;
-	DBT val;
-	int rc;
-
-	p = mem = malloc(128);
-	memset(mem, 0, 128);
-
-	/*
-	 * add entry for "."
-	 */
-	de = p;
-	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
-	de->namelen = GUINT16_TO_LE(1);
-	de->ino = GUINT64_TO_LE(ino_n);
-
-	q = p + sizeof(struct dbfs_dirent);
-	memcpy(q, ".", 1);
-
-	namelen = GUINT16_FROM_LE(de->namelen);
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
-
-	/*
-	 * add entry for ".."
-	 */
-	de = p;
-	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
-	de->namelen = GUINT16_TO_LE(2);
-	de->ino = GUINT64_TO_LE(parent);
-
-	q = p + sizeof(struct dbfs_dirent);
-	memcpy(q, "..", 2);
-
-	namelen = GUINT16_FROM_LE(de->namelen);
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
-
-	/*
-	 * add terminating entry
-	 */
-	de = p;
-	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
-
-	namelen = GUINT16_FROM_LE(de->namelen);
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
-
-	/*
-	 * store dir in database
-	 */
-	memset(&val, 0, sizeof(val));
-	val.data = mem;
-	val.size = p - mem;
-
-	rc = dbfs_dir_write(ino_n, &val);
-	if (rc) {
-		dbfs_inode_del(ino);
-		dbfs_inode_free(ino);
-		return rc;
-	}
-
-	free(mem);
-
-	return 0;
 }
 
 static int dbfs_dir_find_last(struct dbfs_dirent *de, void *userdata)

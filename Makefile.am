@@ -4,13 +4,17 @@
 
 INCLUDES	= @GLIB_CFLAGS@ @FUSE_CFLAGS@
 
+noinst_LIBRARIES = libdbfs.a
+
 sbin_PROGRAMS	= dbfs mkdbfs
 
-dbfs_SOURCES	= dbfs.c dbfs.h dbfs-backend.c libdbfs.c
-dbfs_LDADD	= @GLIB_LIBS@ @FUSE_LIBS@ @DB_LIBS@
+libdbfs_a_SOURCES = libdbfs.c
+
+dbfs_SOURCES	= dbfs.c dbfs.h dbfs-backend.c
+dbfs_LDADD	= @GLIB_LIBS@ @FUSE_LIBS@ @DB_LIBS@ libdbfs.a
 
 mkdbfs_SOURCES	= mkdbfs.c
-mkdbfs_LDADD	= @DB_LIBS@
+mkdbfs_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a
 
 EXTRA_DIST	= autogen.sh
 

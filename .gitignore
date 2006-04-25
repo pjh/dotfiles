@@ -23,5 +23,6 @@ stamp-h1
 mkdbfs
 dbfs
 dbfs-config.h*
+libdbfs.a
 
 fuse-db-*.tar.gz

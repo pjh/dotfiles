@@ -5,14 +5,14 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <time.h>
 #include <glib.h>
 #include <db.h>
 #include "dbfs.h"
 
-static DB_ENV *db_env;
-static DB *db_meta;
+struct dbfs *gfs;
 
-void dbfs_init(void *userdata)
+void create_db(void)
 {
 	const char *db_home, *db_password;
 	int rc;
@@ -31,20 +31,20 @@ void dbfs_init(void *userdata)
 	/* this isn't a very secure way to handle passwords */
 	db_password = getenv("DB_PASSWORD");
 
-	rc = db_env_create(&db_env, 0);
+	rc = db_env_create(&gfs->env, 0);
 	if (rc) {
-		fprintf(stderr, "db_env_create failed: %d\n", rc);
+		fprintf(stderr, "gfs->env_create failed: %d\n", rc);
 		exit(1);
 	}
 
-	db_env->set_errfile(db_env, stderr);
-	db_env->set_errpfx(db_env, "dbfs");
+	gfs->env->set_errfile(gfs->env, stderr);
+	gfs->env->set_errpfx(gfs->env, "mkdbfs");
 
 	if (db_password) {
 		flags |= DB_ENCRYPT;
-		rc = db_env->set_encrypt(db_env, db_password, DB_ENCRYPT_AES);
+		rc = gfs->env->set_encrypt(gfs->env, db_password, DB_ENCRYPT_AES);
 		if (rc) {
-			db_env->err(db_env, rc, "db_env->set_encrypt");
+			gfs->env->err(gfs->env, rc, "gfs->env->set_encrypt");
 			goto err_out;
 		}
 
@@ -54,11 +54,11 @@ void dbfs_init(void *userdata)
 	}
 
 	/* init DB transactional environment, stored in directory db_home */
-	rc = db_env->open(db_env, db_home,
+	rc = gfs->env->open(gfs->env, db_home,
 			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
 			  DB_INIT_TXN | DB_CREATE | flags, 0666);
 	if (rc) {
-		db_env->err(db_env, rc, "db_env->open");
+		gfs->env->err(gfs->env, rc, "gfs->env->open");
 		goto err_out;
 	}
 
@@ -66,18 +66,18 @@ void dbfs_init(void *userdata)
 	 * Open metadata database
 	 */
 
-	rc = db_create(&db_meta, db_env, 0);
+	rc = db_create(&gfs->meta, gfs->env, 0);
 	if (rc) {
-		db_env->err(db_env, rc, "db_create");
+		gfs->env->err(gfs->env, rc, "db_create");
 		goto err_out;
 	}
 
-	rc = db_meta->open(db_meta, NULL, "metadata", NULL,
+	rc = gfs->meta->open(gfs->meta, NULL, "metadata", NULL,
 			   DB_HASH,
 			   DB_AUTO_COMMIT | DB_CREATE | DB_TRUNCATE | flags,
 			   0666);
 	if (rc) {
-		db_meta->err(db_meta, rc, "db_meta->open");
+		gfs->meta->err(gfs->meta, rc, "gfs->meta->open");
 		goto err_out_meta;
 	}
 
@@ -85,41 +85,71 @@ void dbfs_init(void *userdata)
 	 * size.  This is a guess, and should be verified by looking at
 	 * overflow pages and other DB statistics.
 	 */
-	rc = db_meta->set_pagesize(db_meta, 512);
+	rc = gfs->meta->set_pagesize(gfs->meta, 512);
 	if (rc) {
-		db_meta->err(db_meta, rc, "db_meta->set_pagesize");
+		gfs->meta->err(gfs->meta, rc, "gfs->meta->set_pagesize");
 		goto err_out_meta;
 	}
 
 	/* fix everything as little endian */
-	rc = db_meta->set_lorder(db_meta, 1234);
+	rc = gfs->meta->set_lorder(gfs->meta, 1234);
 	if (rc) {
-		db_meta->err(db_meta, rc, "db_meta->set_lorder");
+		gfs->meta->err(gfs->meta, rc, "gfs->meta->set_lorder");
 		goto err_out_meta;
 	}
 
 	return;
 
 err_out_meta:
-	db_meta->close(db_meta, 0);
+	gfs->meta->close(gfs->meta, 0);
 err_out:
-	db_env->close(db_env, 0);
+	gfs->env->close(gfs->env, 0);
 	exit(1);
 }
 
-void dbfs_exit(void *userdata)
+static void make_root_dir(void)
 {
-	db_meta->close(db_meta, 0);
-	db_env->close(db_env, 0);
+	struct dbfs_inode *ino;
+	guint64 curtime;
+	int rc;
 
-	db_env = NULL;
-	db_meta = NULL;
+	/* allocate an empty inode */
+	ino = g_new0(struct dbfs_inode, 1);
+	ino->raw_ino_size = sizeof(struct dbfs_raw_inode);
+	ino->raw_inode = malloc(ino->raw_ino_size);
+	memset(ino->raw_inode, 0, ino->raw_ino_size);
+
+	ino->raw_inode->ino = GUINT64_TO_LE(1);
+	ino->raw_inode->mode = GUINT32_TO_LE(S_IFDIR | 0755);
+	ino->raw_inode->nlink = GUINT32_TO_LE(2);
+	curtime = GUINT64_TO_LE(time(NULL));
+	ino->raw_inode->ctime = curtime;
+	ino->raw_inode->atime = curtime;
+	ino->raw_inode->mtime = curtime;
+
+	rc = dbfs_inode_write(ino);
+	if (rc)
+		goto err_die;
+
+	rc = dbfs_dir_new(1, 1, ino);
+	if (rc)
+		goto err_die;
+	
+	dbfs_inode_free(ino);
+	return;
+
+err_die:
+	errno = -rc;
+	perror("dbfs_inode_write");
+	exit(1);
 }
 
 int main (int argc, char *argv[])
 {
-	dbfs_init(NULL);
-	dbfs_exit(NULL);
+	gfs = dbfs_new();
+	create_db();
+	make_root_dir();
+	dbfs_close(gfs);
 	return 0;
 }
 

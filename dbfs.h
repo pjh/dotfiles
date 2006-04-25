@@ -76,13 +76,13 @@ struct dbfs {
 
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 
+/* dbfs-backend.c */
 extern int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out);
 extern int dbfs_dir_read(guint64 ino, DBT *val);
 extern int dbfs_symlink_read(guint64 ino, DBT *val);
 extern int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata);
 extern int dbfs_dir_lookup(guint64 parent, const char *name, guint64 *ino);
 extern int dbfs_unlink(guint64 parent, const char *name, unsigned long flags);
-extern void dbfs_inode_free(struct dbfs_inode *ino);
 extern void dbfs_init(void *userdata);
 extern void dbfs_exit(void *userdata);
 extern int dbfs_mknod(guint64 parent, const char *name,
@@ -91,10 +91,15 @@ extern int dbfs_mknod(guint64 parent, const char *name,
 extern int dbfs_symlink_write(guint64 ino, const char *link);
 extern int dbfs_inode_del(struct dbfs_inode *ino);
 
+/* libdbfs.c */
 extern int dbfs_open(struct dbfs *fs);
 extern void dbfs_close(struct dbfs *fs);
 extern struct dbfs *dbfs_new(void);
 extern void dbfs_free(struct dbfs *fs);
 extern struct dbfs *gfs;
+extern int dbfs_inode_write(struct dbfs_inode *ino);
+extern int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino);
+extern int dbfs_dir_write(guint64 ino, DBT *val);
+extern void dbfs_inode_free(struct dbfs_inode *ino);
 
 #endif /* __DBFS_H__ */
