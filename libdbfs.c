@@ -123,7 +123,7 @@ struct dbfs *dbfs_new(void)
 		return NULL;
 
 	fs->next_inode = 2ULL;
-	
+
 	fs->home = getenv("DB_HOME");
 	if (!fs->home)
 		goto err_out;

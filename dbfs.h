@@ -88,6 +88,8 @@ extern void dbfs_exit(void *userdata);
 extern int dbfs_mknod(guint64 parent, const char *name,
 		      guint32 mode, guint64 rdev,
 		      struct dbfs_inode **ino);
+extern int dbfs_symlink_write(guint64 ino, const char *link);
+extern int dbfs_inode_del(struct dbfs_inode *ino);
 
 extern int dbfs_open(struct dbfs *fs);
 extern void dbfs_close(struct dbfs *fs);

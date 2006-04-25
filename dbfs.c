@@ -10,6 +10,30 @@
 #include <db.h>
 #include "dbfs.h"
 
+static void dbfs_fill_ent(const struct dbfs_inode *ino,
+			  struct fuse_entry_param *ent)
+{
+	memset(ent, 0, sizeof(*ent));
+
+	ent->ino = GUINT64_FROM_LE(ino->raw_inode->ino);
+	ent->generation = GUINT64_FROM_LE(ino->raw_inode->version);
+
+	/* these timeouts are just a guess */
+	ent->attr_timeout = 2.0;
+	ent->entry_timeout = 2.0;
+}
+
+static void dbfs_reply_ino(fuse_req_t req, struct dbfs_inode *ino)
+{
+	struct fuse_entry_param ent;
+
+	dbfs_fill_ent(ino, &ent);
+
+	fuse_reply_entry(req, &ent);
+
+	dbfs_inode_free(ino);
+}
+
 static void dbfs_op_init(void *userdata)
 {
 	struct dbfs **fs_io = userdata;
@@ -38,25 +62,25 @@ static void dbfs_op_destroy(void *userdata)
 
 static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
-	struct fuse_entry_param e;
-	guint64 ino;
+	guint64 ino_n;
+	struct dbfs_inode *ino;
 	int rc;
 
 	/* lookup inode in parent directory */
-	rc = dbfs_dir_lookup(parent, name, &ino);
+	rc = dbfs_dir_lookup(parent, name, &ino_n);
 	if (rc) {
-		fuse_reply_err(req, rc);
+		fuse_reply_err(req, -rc);
 		return;
 	}
 
-	/* send reply; timeout of 2.0 is just a guess */
+	rc = dbfs_inode_read(ino_n, &ino);
+	if (rc) {
+		fuse_reply_err(req, -rc);
+		return;
+	}
 
-	memset(&e, 0, sizeof(e));
-	e.ino = ino;
-	e.attr_timeout = 2.0;
-	e.entry_timeout = 2.0;
-
-	fuse_reply_entry(req, &e);
+	/* send reply */
+	dbfs_reply_ino(req, ino);
 }
 
 static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
@@ -106,7 +130,7 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	/* read link from database */
 	rc = dbfs_symlink_read(ino, &val);
 	if (rc) {
-		fuse_reply_err(req, rc);
+		fuse_reply_err(req, -rc);
 		return;
 	}
 
@@ -158,31 +182,22 @@ static int dbfs_mode_validate(mode_t mode)
 static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 			  mode_t mode, dev_t rdev)
 {
-	struct fuse_entry_param ent;
 	struct dbfs_inode *ino;
 	int rc;
 
 	rc = dbfs_mode_validate(mode);
 	if (rc) {
-		fuse_reply_err(req, rc);
+		fuse_reply_err(req, -rc);
 		return;
 	}
 
 	rc = dbfs_mknod(parent, name, mode, rdev, &ino);
 	if (rc) {
-		fuse_reply_err(req, rc);
+		fuse_reply_err(req, -rc);
 		return;
 	}
 
-	memset(&ent, 0, sizeof(ent));
-	ent.ino = GUINT64_FROM_LE(ino->raw_inode->ino);
-	ent.generation = GUINT64_FROM_LE(ino->raw_inode->version);
-	ent.attr_timeout = 2.0;
-	ent.entry_timeout = 2.0;
-
-	fuse_reply_entry(req, &ent);
-
-	dbfs_inode_free(ino);
+	dbfs_reply_ino(req, ino);
 }
 
 static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
@@ -198,7 +213,7 @@ static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	int rc = dbfs_unlink(parent, name, 0);
 	if (rc)
-		fuse_reply_err(req, rc);
+		fuse_reply_err(req, -rc);
 }
 
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
@@ -242,7 +257,37 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	return;
 
 err_out:
-	fuse_reply_err(req, rc);
+	fuse_reply_err(req, -rc);
+}
+
+static void dbfs_op_symlink(fuse_req_t req, const char *link,
+			    fuse_ino_t parent, const char *name)
+{
+	struct dbfs_inode *ino;
+	int rc;
+
+	if (!g_utf8_validate(link, -1, NULL)) {
+		rc = -EINVAL;
+		goto err_out;
+	}
+
+	rc = dbfs_mknod(parent, name,
+			S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0, &ino);
+	if (rc)
+		goto err_out;
+
+	rc = dbfs_symlink_write(GUINT64_FROM_LE(ino->raw_inode->ino), link);
+	if (rc)
+		goto err_out_mknod;
+
+	dbfs_reply_ino(req, ino);
+	return;
+
+err_out_mknod:
+	dbfs_inode_del(ino);
+	dbfs_inode_free(ino);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
@@ -254,7 +299,7 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 	/* read directory from database */
 	rc = dbfs_dir_read(ino, &val);
 	if (rc) {
-		fuse_reply_err(req, rc);
+		fuse_reply_err(req, -rc);
 		return;
 	}
 
@@ -348,7 +393,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.mkdir		= dbfs_op_mkdir,
 	.unlink		= dbfs_op_unlink,
 	.rmdir		= dbfs_op_rmdir,
-	.symlink	= NULL,
+	.symlink	= dbfs_op_symlink,
 	.rename		= NULL,
 	.link		= NULL,
 	.open		= NULL,

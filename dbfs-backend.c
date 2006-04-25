@@ -66,7 +66,7 @@ void dbfs_inode_free(struct dbfs_inode *ino)
 	g_free(ino);
 }
 
-static int dbfs_inode_del(struct dbfs_inode *ino)
+int dbfs_inode_del(struct dbfs_inode *ino)
 {
 	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
 	char key[32];
@@ -547,6 +547,25 @@ int dbfs_symlink_read(guint64 ino, DBT *val)
 	if (rc == DB_NOTFOUND)
 		return -EINVAL;
 	return rc ? -EIO : 0;
+}
+
+int dbfs_symlink_write(guint64 ino, const char *link)
+{
+	DBT key, val;
+	char key_str[32];
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
+
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	val.data = (void *) link;
+	val.size = strlen(link);
+
+	return gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
 int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
