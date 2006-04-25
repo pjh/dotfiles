@@ -512,5 +512,16 @@ int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
 	/* FIXME */
 	*ino = NULL;
 	return -EIO;
+
+	/* To do:
+
+	   - fail if invalid name
+	   - allocate new inode number
+	   - create inode record
+	   - if dir, create dir record
+	   - attempt to add name to parent directory
+	   - fail if already exists
+
+	 */
 }
 
