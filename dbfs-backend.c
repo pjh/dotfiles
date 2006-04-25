@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <time.h>
 #include <glib.h>
 #include <db.h>
 #include "dbfs.h"
@@ -236,13 +237,11 @@ int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
 	struct dbfs_dirent *de;
 	void *p;
 	int rc = 0;
+	unsigned int namelen;
 
 	p = dir;
 	while (1) {
 		de = p;
-		de->magic	= GUINT32_FROM_LE(de->magic);
-		de->namelen	= GUINT16_FROM_LE(de->namelen);
-		de->ino		= GUINT64_FROM_LE(de->ino);
 
 		g_assert (de->magic == DBFS_DE_MAGIC);
 		if (!de->namelen)
@@ -256,8 +255,9 @@ int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
 		/* align things so that compiler structures
 		 * do not wind up misaligned.
 		 */
-		p += sizeof(struct dbfs_dirent) + de->namelen +
-		     (4 - (de->namelen & 0x3));
+		namelen = GUINT16_FROM_LE(de->namelen);
+		p += sizeof(struct dbfs_dirent) + namelen +
+		     (4 - (namelen & 0x3));
 	}
 
 	return rc;
@@ -268,7 +268,7 @@ static int dbfs_dir_scan1(struct dbfs_dirent *de, void *userdata)
 	struct dbfs_dirscan_info *di = userdata;
 
 	if (!di->start_ent) {
-		if ((de->namelen == di->namelen) &&
+		if ((GUINT16_FROM_LE(de->namelen) == di->namelen) &&
 		    (!memcmp(de->name, di->name, di->namelen)))
 			di->start_ent = de;
 	}
@@ -398,22 +398,261 @@ out:
 	return rc;
 }
 
-int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
-	       struct dbfs_inode **ino)
+static int dbfs_name_validate(const char *name)
 {
-	/* FIXME */
-	*ino = NULL;
-	return -EIO;
+	if (strchr(name, '/'))
+		return -EINVAL;
+	if (!g_utf8_validate(name, -1, NULL))
+		return -EINVAL;
+	return 0;
+}
 
-	/* To do:
+static int dbfs_inode_next(struct dbfs_inode **ino_out)
+{
+	struct dbfs_inode *ino;
+	int rc;
+	guint64 curtime, start = gfs->next_inode;
 
-	   - fail if invalid name
-	   - allocate new inode number
-	   - create inode record
-	   - if dir, create dir record
-	   - attempt to add name to parent directory
-	   - fail if already exists
+	*ino_out = NULL;
 
+	/* loop through inode numbers starting at gfs->next_inode,
+	 * and stop on first error.  Error ENOENT means the
+	 * inode number was not found, and can therefore be used
+	 * as the next free inode number.
 	 */
+	while (1) {
+		rc = dbfs_inode_read(gfs->next_inode, &ino);
+		if (rc)
+			break;
+
+		dbfs_inode_free(ino);
+		gfs->next_inode++;
+		if (gfs->next_inode < 2)
+			gfs->next_inode = 2;
+		if (gfs->next_inode == start) {	/* loop */
+			rc = -EBUSY;
+			break;
+		}
+	}
+
+	if (rc != -ENOENT)
+		return rc;
+
+	/* allocate an empty inode */
+	ino = g_new0(struct dbfs_inode, 1);
+	ino->raw_ino_size = sizeof(struct dbfs_raw_inode);
+	ino->raw_inode = malloc(ino->raw_ino_size);
+	memset(ino->raw_inode, 0, ino->raw_ino_size);
+
+	ino->raw_inode->ino = GUINT64_TO_LE(gfs->next_inode++);
+	curtime = GUINT64_TO_LE(time(NULL));
+	ino->raw_inode->ctime = curtime;
+	ino->raw_inode->atime = curtime;
+	ino->raw_inode->mtime = curtime;
+
+	*ino_out = ino;
+
+	return 0;
+}
+
+static int dbfs_dir_new(guint64 parent, guint64 ino_n, struct dbfs_inode *ino)
+{
+	void *mem, *p, *q;
+	struct dbfs_dirent *de;
+	size_t namelen;
+	DBT val;
+	int rc;
+
+	p = mem = malloc(128);
+	memset(mem, 0, 128);
+
+	/*
+	 * add entry for "."
+	 */
+	de = p;
+	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
+	de->namelen = GUINT16_TO_LE(1);
+	de->ino = GUINT64_TO_LE(ino_n);
+
+	q = p + sizeof(struct dbfs_dirent);
+	memcpy(q, ".", 1);
+
+	namelen = GUINT16_FROM_LE(de->namelen);
+	p += sizeof(struct dbfs_dirent) + namelen +
+	     (4 - (namelen & 0x3));
+
+	/*
+	 * add entry for ".."
+	 */
+	de = p;
+	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
+	de->namelen = GUINT16_TO_LE(2);
+	de->ino = GUINT64_TO_LE(parent);
+
+	q = p + sizeof(struct dbfs_dirent);
+	memcpy(q, "..", 2);
+
+	namelen = GUINT16_FROM_LE(de->namelen);
+	p += sizeof(struct dbfs_dirent) + namelen +
+	     (4 - (namelen & 0x3));
+
+	/*
+	 * add terminating entry
+	 */
+	de = p;
+	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
+
+	namelen = GUINT16_FROM_LE(de->namelen);
+	p += sizeof(struct dbfs_dirent) + namelen +
+	     (4 - (namelen & 0x3));
+
+	/*
+	 * store dir in database
+	 */
+	memset(&val, 0, sizeof(val));
+	val.data = mem;
+	val.size = p - mem;
+
+	rc = dbfs_dir_write(ino_n, &val);
+	if (rc) {
+		dbfs_inode_del(ino);
+		dbfs_inode_free(ino);
+		return rc;
+	}
+
+	free(mem);
+
+	return 0;
+}
+
+static int dbfs_dir_find_last(struct dbfs_dirent *de, void *userdata)
+{
+	struct dbfs_dirscan_info *di = userdata;
+
+	di->end_ent = de;
+
+	return 0;
+}
+
+static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
+{
+	struct dbfs_dirscan_info di;
+	struct dbfs_dirent *de;
+	DBT val;
+	int rc;
+	unsigned int dir_size, namelen;
+	void *p;
+
+	/* read parent directory from database */
+	rc = dbfs_dir_read(parent, &val);
+	if (rc)
+		return rc;
+
+	memset(&di, 0, sizeof(di));
+	di.name = name;
+	di.namelen = strlen(name);
+
+	/* scan for name in directory, abort if found */
+	rc = dbfs_dir_foreach(val.data, dbfs_dir_scan1, &di);
+	if (rc != -ENOENT) {
+		if (rc == 0)
+			rc = -EEXIST;
+		goto out;
+	}
+
+	/* get pointer to last entry */
+	rc = dbfs_dir_foreach(val.data, dbfs_dir_find_last, &di);
+	if (rc)
+		goto out;
+
+	/* adjust pointer 'p' to point to terminator entry */
+	de = p = di.end_ent;
+	namelen = GUINT16_FROM_LE(de->namelen);
+	p += sizeof(struct dbfs_dirent) + namelen +
+	     (4 - (namelen & 0x3));
+
+	/* increase directory data area size */
+	dir_size = p - val.data;
+	val.size = dir_size + (3 * sizeof(struct dbfs_dirent)) + di.namelen;
+	val.data = realloc(val.data, val.size);
+	p = val.data + dir_size;
+
+	/* append directory entry */
+	de = p;
+	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
+	de->namelen = GUINT16_TO_LE(di.namelen);
+	de->ino = GUINT64_TO_LE(ino_n);
+	memcpy(de->name, name, di.namelen);
+
+	namelen = di.namelen;
+	p += sizeof(struct dbfs_dirent) + namelen +
+	     (4 - (namelen & 0x3));
+
+	/* append terminator entry */
+	de = p;
+	memset(de, 0, sizeof(*de));
+	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
+
+	namelen = 0;
+	p += sizeof(struct dbfs_dirent) + namelen +
+	     (4 - (namelen & 0x3));
+
+	val.size = p - val.data;
+
+	rc = dbfs_dir_write(parent, &val);
+
+out:
+	free(val.data);
+	return rc;
+}
+
+int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
+	       struct dbfs_inode **ino_out)
+{
+	struct dbfs_inode *ino;
+	int rc, is_dir;
+	unsigned int nlink = 1;
+	guint64 ino_n;
+
+	*ino_out = NULL;
+
+	rc = dbfs_name_validate(name);
+	if (rc)
+		return rc;
+
+	rc = dbfs_inode_next(&ino);
+	if (rc)
+		return rc;
+
+	is_dir = S_ISDIR(mode);
+	if (is_dir)
+		nlink++;
+	ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
+	ino->raw_inode->mode = GUINT32_TO_LE(mode);
+	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
+	ino->raw_inode->rdev = GUINT64_TO_LE(rdev);
+
+	rc = dbfs_inode_write(ino);
+	if (rc)
+		goto err_out;
+
+	if (is_dir) {
+		rc = dbfs_dir_new(parent, ino_n, ino);
+		if (rc)
+			goto err_out_del;
+	}
+
+	rc = dbfs_dir_append(parent, ino_n, name);
+	if (rc)
+		goto err_out_del;
+
+	*ino_out = ino;
+	return 0;
+
+err_out_del:
+	dbfs_inode_del(ino);
+err_out:
+	dbfs_inode_free(ino);
+	return rc;
 }
 

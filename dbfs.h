@@ -69,6 +69,8 @@ struct dbfs {
 
 	DB_ENV			*env;
 	DB			*meta;
+
+	guint64			next_inode;
 };
 
 

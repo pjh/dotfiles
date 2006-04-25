@@ -203,9 +203,9 @@ static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
 {
-	if ((de->namelen == 1) && (!memcmp(de->name, ".", 1)))
+	if ((GUINT16_FROM_LE(de->namelen) == 1) && (!memcmp(de->name, ".", 1)))
 		return 0;
-	if ((de->namelen == 2) && (!memcmp(de->name, "..", 2)))
+	if ((GUINT16_FROM_LE(de->namelen) == 2) && (!memcmp(de->name, "..", 2)))
 		return 0;
 	return ENOTEMPTY;
 }
@@ -312,8 +312,8 @@ static int dbfs_fill_dirbuf(struct dbfs_dirent *de, void *userdata)
 	char *s;
 
 	/* add dirent to buffer; use g_strndup solely to append nul */
-	s = g_strndup(de->name, de->namelen);
-	dirbuf_add(b, s, de->ino);
+	s = g_strndup(de->name, GUINT16_FROM_LE(de->namelen));
+	dirbuf_add(b, s, GUINT64_FROM_LE(de->ino));
 	free(s);
 	return 0;
 }

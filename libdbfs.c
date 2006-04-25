@@ -121,6 +121,8 @@ struct dbfs *dbfs_new(void)
 	fs = g_new0(struct dbfs, 1);
 	if (!fs)
 		return NULL;
+
+	fs->next_inode = 2ULL;
 	
 	fs->home = getenv("DB_HOME");
 	if (!fs->home)
