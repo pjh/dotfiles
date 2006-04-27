@@ -25,4 +25,4 @@ dbfs
 dbfs-config.h*
 libdbfs.a
 
-fuse-db-*.tar.gz
+fuse-dbfs-*.tar.gz
