@@ -3,12 +3,16 @@
 
 #include <glib.h>
 
+#define ALIGN(x,a) (((x)+(a)-1)&~((a)-1))
+
 enum {
 	DBFS_BLK_ID_LEN		= 20,
 
 	DBFS_UNLINK_DIR		= (1 << 0),
 
 	DBFS_ROOT_INO		= 1,
+
+	DBFS_DIRENT_ALIGN	= 8,
 };
 
 enum {
@@ -101,5 +105,10 @@ extern int dbfs_inode_write(struct dbfs_inode *ino);
 extern int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino);
 extern int dbfs_dir_write(guint64 ino, DBT *val);
 extern void dbfs_inode_free(struct dbfs_inode *ino);
+
+static inline size_t dbfs_dirent_next(guint16 namelen)
+{
+	return ALIGN(sizeof(struct dbfs_dirent) + namelen, DBFS_DIRENT_ALIGN);
+}
 
 #endif /* __DBFS_H__ */

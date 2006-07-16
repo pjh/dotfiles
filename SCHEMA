@@ -1,0 +1,67 @@
+
+		Berkeley DB database schema for filesystem
+		------------------------------------------
+
+
+
+system environment variables:
+DB_HOME:	database home dir, for transaction database + logs
+DB_PASSWORD:	if present, AES-encrypt database with this password
+
+db4 environment
+---------------
+	"metadata": metadata database
+		page size 512
+		little endian byte order
+	optionally encrypted w/ DB4 AES encryption
+
+inode
+-----
+key:	/inode/%Lu	(%Lu == inode number)
+
+value record's fields (all little endian):
+
+struct dbfs_raw_inode:
+guint64         ino:		inode number (identity)
+guint64         version:	linear sequence number, starts @ 1
+guint32         mode:		unix mode_t
+guint32         nlink:		number of hard links
+guint32         uid:		unix user id
+guint32         gid:		unix group id
+guint64         rdev:		unix dev_t
+guint64         size:		inode data size, in bytes
+guint64         ctime:		file creation time
+guint64         atime:		file last-accessed time
+guint64         mtime:		file last-modified time
+struct dbfs_extent blocks[0]:	array of extents, describing inode data
+
+struct dbfs_extent:
+dbfs_blk_id_t   id:		20-byte sha1 hash of data
+guint64         size:		size of data block
+
+
+directories
+-----------
+An array of struct dbfs_dirent, aligned on DBFS_DIRENT_ALIGN bounds.
+
+key:	/dir/%Lu		inode number associated with this dir
+
+struct dbfs_dirent:
+guint32         magic:		magic number (0xd4d4d4d4U)
+guint16         res2:		reserved for future use
+guint16         namelen:	length of final filename component
+guint64         ino:		inode number of referenced inode
+char            name[0]:	UTF8 final filename component (namelen bytes)
+0-7 bytes			alignment padding
+
+The array of struct dbfs_direct is terminated by a final dbfs_dirent
+containing a zero-length name (namelen==0).
+
+
+symbolic links
+--------------
+key:	/symlink/%Lu		inode number associated with this symlink
+
+value:	UTF8 string, containing link text (variable length)
+
+

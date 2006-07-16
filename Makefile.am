@@ -16,5 +16,5 @@ dbfs_LDADD	= @GLIB_LIBS@ @FUSE_LIBS@ @DB_LIBS@ libdbfs.a
 mkdbfs_SOURCES	= mkdbfs.c
 mkdbfs_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a
 
-EXTRA_DIST	= autogen.sh
+EXTRA_DIST	= autogen.sh SCHEMA
 

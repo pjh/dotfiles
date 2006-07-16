@@ -48,7 +48,7 @@ void create_db(void)
 			goto err_out;
 		}
 
-		/* this isn't a very good way to shroud the password */
+		/* FIXME: this isn't a very good way to shroud the password */
 		if (putenv("DB_PASSWORD=X"))
 			perror("putenv (SECURITY WARNING)");
 	}

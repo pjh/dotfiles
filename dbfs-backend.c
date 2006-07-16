@@ -237,8 +237,7 @@ int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata)
 		 * do not wind up misaligned.
 		 */
 		namelen = GUINT16_FROM_LE(de->namelen);
-		p += sizeof(struct dbfs_dirent) + namelen +
-		     (4 - (namelen & 0x3));
+		p += dbfs_dirent_next(namelen);
 	}
 
 	return rc;
@@ -374,8 +373,7 @@ static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 	/* adjust pointer 'p' to point to terminator entry */
 	de = p = di.end_ent;
 	namelen = GUINT16_FROM_LE(de->namelen);
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
+	p += dbfs_dirent_next(namelen);
 
 	/* increase directory data area size */
 	dir_size = p - val.data;
@@ -391,8 +389,7 @@ static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 	memcpy(de->name, name, di.namelen);
 
 	namelen = di.namelen;
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
+	p += dbfs_dirent_next(namelen);
 
 	/* append terminator entry */
 	de = p;
@@ -400,8 +397,7 @@ static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
 
 	namelen = 0;
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
+	p += dbfs_dirent_next(namelen);
 
 	val.size = p - val.data;
 

@@ -132,7 +132,7 @@ struct dbfs *dbfs_new(void)
 	if (passwd) {
 		fs->passwd = strdup(passwd);
 
-		/* this isn't a very good way to shroud the password */
+		/* FIXME: this isn't a very good way to shroud the password */
 		if (putenv("DB_PASSWORD=X"))
 			perror("putenv DB_PASSWORD (SECURITY WARNING)");
 	}
@@ -202,8 +202,7 @@ int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino)
 	memcpy(q, ".", 1);
 
 	namelen = GUINT16_FROM_LE(de->namelen);
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
+	p += dbfs_dirent_next(namelen);
 
 	/*
 	 * add entry for ".."
@@ -217,8 +216,7 @@ int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino)
 	memcpy(q, "..", 2);
 
 	namelen = GUINT16_FROM_LE(de->namelen);
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
+	p += dbfs_dirent_next(namelen);
 
 	/*
 	 * add terminating entry
@@ -227,8 +225,7 @@ int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino)
 	de->magic = GUINT32_TO_LE(DBFS_DE_MAGIC);
 
 	namelen = GUINT16_FROM_LE(de->namelen);
-	p += sizeof(struct dbfs_dirent) + namelen +
-	     (4 - (namelen & 0x3));
+	p += dbfs_dirent_next(namelen);
 
 	/*
 	 * store dir in database
