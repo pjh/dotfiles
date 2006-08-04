@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
+#include <attr/xattr.h>
 #include <glib.h>
 #include <db.h>
 #include "dbfs.h"
@@ -108,14 +109,13 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	size_t ex_sz;
 	guint32 mode;
 
-	memset(&key, 0, sizeof(key));
-	memset(&val, 0, sizeof(val));
-
 	sprintf(key_str, "/inode/%Lu", (unsigned long long) ino_n);
 
+	memset(&key, 0, sizeof(key));
 	key.data = key_str;
 	key.size = strlen(key_str);
 
+	memset(&val, 0, sizeof(val));
 	val.flags = DB_DBT_MALLOC;
 
 	rc = gfs->meta->get(gfs->meta, NULL, &key, &val, 0);
@@ -197,14 +197,13 @@ int dbfs_dir_read(guint64 ino, DBT *val)
 	char key_str[32];
 	int rc;
 
-	memset(&key, 0, sizeof(key));
-	memset(val, 0, sizeof(*val));
-
 	sprintf(key_str, "/dir/%Lu", (unsigned long long) ino);
 
+	memset(&key, 0, sizeof(key));
 	key.data = key_str;
 	key.size = strlen(key_str);
 
+	memset(val, 0, sizeof(*val));
 	val->flags = DB_DBT_MALLOC;
 
 	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
@@ -431,14 +430,13 @@ int dbfs_symlink_read(guint64 ino, DBT *val)
 	char key_str[32];
 	int rc;
 
-	memset(&key, 0, sizeof(key));
-	memset(val, 0, sizeof(*val));
-
 	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
 
+	memset(&key, 0, sizeof(key));
 	key.data = key_str;
 	key.size = strlen(key_str);
 
+	memset(val, 0, sizeof(*val));
 	val->flags = DB_DBT_MALLOC;
 
 	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
@@ -452,14 +450,13 @@ int dbfs_symlink_write(guint64 ino, const char *link)
 	DBT key, val;
 	char key_str[32];
 
-	memset(&key, 0, sizeof(key));
-	memset(&val, 0, sizeof(val));
-
 	sprintf(key_str, "/symlink/%Lu", (unsigned long long) ino);
 
+	memset(&key, 0, sizeof(key));
 	key.data = key_str;
 	key.size = strlen(key_str);
 
+	memset(&val, 0, sizeof(val));
 	val.data = (void *) link;
 	val.size = strlen(link);
 
@@ -582,5 +579,110 @@ err_out_del:
 err_out:
 	dbfs_inode_free(ino);
 	return rc;
+}
+
+static int dbfs_xattr_read(guint64 ino, const char *name, DBT *val)
+{
+	char key_str[DBFS_XATTR_NAME_LEN + 32];
+	DBT key;
+	int rc;
+
+	snprintf(key_str, sizeof(key_str),
+		 "/xattr/%Lu/%s", (unsigned long long) ino, name);
+
+	memset(&key, 0, sizeof(key));
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	memset(val, 0, sizeof(*val));
+	val->flags = DB_DBT_MALLOC;
+
+	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
+	if (rc == DB_NOTFOUND)
+		return -EINVAL;
+	return rc ? -EIO : 0;
+}
+
+static int dbfs_xattr_write(guint64 ino, const char *name,
+			    const char *buf, size_t buflen)
+{
+	char key_str[DBFS_XATTR_NAME_LEN + 32];
+	DBT key, val;
+
+	snprintf(key_str, sizeof(key_str),
+		 "/xattr/%Lu/%s", (unsigned long long) ino, name);
+
+	memset(&key, 0, sizeof(key));
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	memset(&val, 0, sizeof(val));
+	val.data = (void *) buf;
+	val.size = buflen;
+
+	return gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+}
+
+int dbfs_xattr_get(guint64 ino_n, const char *name,
+		   char **buf_out, size_t *buflen_out)
+{
+	int rc;
+	DBT val;
+
+	rc = dbfs_xattr_read(ino_n, name, &val);
+	if (rc)
+		return rc;
+	
+	*buf_out = val.data;
+	*buflen_out = val.size;
+
+	return 0;
+}
+
+int dbfs_xattr_set(guint64 ino_n, const char *name, const char *buf,
+		   size_t buflen, int flags)
+{
+	char *current = NULL;
+	size_t current_len = 0;
+	int rc, exists;
+
+	rc = dbfs_xattr_get(ino_n, name, &current, &current_len);
+	if (rc && (rc != -EINVAL))
+		return rc;
+
+	exists = (current == NULL);
+	free(current);
+
+	if (exists && (flags & XATTR_CREATE))
+		return -EEXIST;
+	if (!exists && (flags & XATTR_REPLACE))
+		return -ENOATTR;
+	if (buflen > DBFS_XATTR_MAX_LEN)
+		return -ENOSPC;		/* TODO: return value sane? */
+
+	/* FIXME: update list of xattrs for this inode */
+
+	return dbfs_xattr_write(ino_n, name, buf, buflen);
+}
+
+int dbfs_xattr_remove(guint64 ino_n, const char *name)
+{
+	char key_str[DBFS_XATTR_NAME_LEN + 32];
+	DBT key;
+	int rc;
+
+	snprintf(key_str, sizeof(key_str),
+		 "/xattr/%Lu/%s", (unsigned long long) ino_n, name);
+
+	memset(&key, 0, sizeof(key));
+	key.data = key_str;
+	key.size = strlen(key_str);
+
+	/* FIXME: update list of xattrs for this inode */
+
+	rc = gfs->meta->del(gfs->meta, NULL, &key, 0);
+	if (rc == DB_NOTFOUND)
+		return -ENOENT;
+	return rc ? -EIO : 0;
 }
 

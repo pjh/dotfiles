@@ -212,7 +212,7 @@ static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	int rc = dbfs_unlink(parent, name, 0);
-	fuse_reply_err(req, rc ? -rc : 0);
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_link(fuse_req_t req, fuse_ino_t ino_n, fuse_ino_t parent,
@@ -278,7 +278,7 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
 
 out:
-	fuse_reply_err(req, rc ? -rc : 0);
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_symlink(fuse_req_t req, const char *link,
@@ -402,6 +402,48 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	free(b.p);
 }
 
+static void dbfs_op_setxattr(fuse_req_t req, fuse_ino_t ino,
+			     const char *name, const char *value,
+			     size_t size, int flags)
+{
+	int rc = dbfs_xattr_set(ino, name, value, size, flags);
+	fuse_reply_err(req, -rc);
+}
+
+static void dbfs_op_getxattr(fuse_req_t req, fuse_ino_t ino,
+			     const char *name, size_t size)
+{
+	char *buf = NULL;
+	size_t buflen = 0;
+	int rc;
+
+	rc = dbfs_xattr_get(ino, name, &buf, &buflen);
+	if (rc)
+		goto err_out;
+
+	if (size == 0)
+		fuse_reply_xattr(req, buflen);
+	else if (buflen <= size)
+		fuse_reply_buf(req, buf, buflen);
+	else {
+		rc = -ERANGE;
+		goto err_out;
+	}
+
+	free(buf);
+	return;
+
+err_out:
+	fuse_reply_err(req, -rc);
+}
+
+static void dbfs_op_removexattr(fuse_req_t req, fuse_ino_t ino,
+				const char *name)
+{
+	int rc = dbfs_xattr_remove(ino, name);
+	fuse_reply_err(req, -rc);
+}
+
 static struct fuse_lowlevel_ops dbfs_ops = {
 	.init		= dbfs_op_init,
 	.destroy	= dbfs_op_destroy,
@@ -428,10 +470,10 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.releasedir	= dbfs_op_releasedir,
 	.fsyncdir	= NULL,
 	.statfs		= NULL,
-	.setxattr	= NULL,
-	.getxattr	= NULL,
+	.setxattr	= dbfs_op_setxattr,
+	.getxattr	= dbfs_op_getxattr,
 	.listxattr	= NULL,
-	.removexattr	= NULL,
+	.removexattr	= dbfs_op_removexattr,
 	.access		= NULL,
 	.create		= NULL,
 };

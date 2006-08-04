@@ -13,6 +13,9 @@ enum {
 	DBFS_ROOT_INO		= 1,
 
 	DBFS_DIRENT_ALIGN	= 8,
+
+	DBFS_XATTR_NAME_LEN	= 256,
+	DBFS_XATTR_MAX_LEN	= (1024 * 1024),
 };
 
 enum {
@@ -95,6 +98,12 @@ extern int dbfs_mknod(guint64 parent, const char *name,
 		      struct dbfs_inode **ino);
 extern int dbfs_symlink_write(guint64 ino, const char *link);
 extern int dbfs_inode_del(struct dbfs_inode *ino);
+extern int dbfs_xattr_get(guint64 ino_n, const char *name,
+			  char **buf_out, size_t *buflen_out);
+extern int dbfs_xattr_set(guint64 ino_n, const char *name,
+			  const char *buf, size_t buflen,
+			  int flags);
+extern int dbfs_xattr_remove(guint64 ino_n, const char *name);
 
 /* libdbfs.c */
 extern int dbfs_open(struct dbfs *fs);
