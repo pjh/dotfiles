@@ -86,6 +86,7 @@ extern int dbfs_dir_read(guint64 ino, DBT *val);
 extern int dbfs_symlink_read(guint64 ino, DBT *val);
 extern int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata);
 extern int dbfs_dir_lookup(guint64 parent, const char *name, guint64 *ino);
+extern int dbfs_link(struct dbfs_inode *ino, guint64 ino_n, guint64 parent, const char *name);
 extern int dbfs_unlink(guint64 parent, const char *name, unsigned long flags);
 extern void dbfs_init(void *userdata);
 extern void dbfs_exit(void *userdata);

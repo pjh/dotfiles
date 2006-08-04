@@ -151,6 +151,9 @@ void dbfs_free(struct dbfs *fs)
 
 void dbfs_inode_free(struct dbfs_inode *ino)
 {
+	if (!ino)		/* permit dbfs_inode_free(NULL) */
+		return;
+
 	free(ino->raw_inode);
 	g_free(ino);
 }

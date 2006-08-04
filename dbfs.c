@@ -215,6 +215,32 @@ static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 	fuse_reply_err(req, rc ? -rc : 0);
 }
 
+static void dbfs_op_link(fuse_req_t req, fuse_ino_t ino_n, fuse_ino_t parent,
+			 const char *newname)
+{
+	struct dbfs_inode *ino;
+	int rc;
+
+	/* read inode from database */
+	rc = dbfs_inode_read(ino_n, &ino);
+	if (rc) {
+		fuse_reply_err(req, ENOENT);
+		return;
+	}
+
+	/* attempt to create hard link */
+	rc = dbfs_link(ino, ino_n, parent, newname);
+	if (rc)
+		goto err_out;
+
+	dbfs_reply_ino(req, ino);
+	return;
+
+err_out:
+	dbfs_inode_free(ino);
+	fuse_reply_err(req, -rc);
+}
+
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
 {
 	if ((GUINT16_FROM_LE(de->namelen) == 1) && (!memcmp(de->name, ".", 1)))
@@ -390,7 +416,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.rmdir		= dbfs_op_rmdir,
 	.symlink	= dbfs_op_symlink,
 	.rename		= NULL,
-	.link		= NULL,
+	.link		= dbfs_op_link,
 	.open		= NULL,
 	.read		= NULL,
 	.write		= NULL,

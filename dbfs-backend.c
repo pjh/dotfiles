@@ -339,6 +339,19 @@ static int dbfs_dir_find_last(struct dbfs_dirent *de, void *userdata)
 	return 0;
 }
 
+static int dbfs_name_validate(const char *name)
+{
+	if (strchr(name, '/'))
+		return -EINVAL;
+	if (!g_utf8_validate(name, -1, NULL))
+		return -EINVAL;
+	if (!strcmp(name, "."))
+		return -EINVAL;
+	if (!strcmp(name, ".."))
+		return -EINVAL;
+	return 0;
+}
+
 static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 {
 	struct dbfs_dirscan_info di;
@@ -347,6 +360,10 @@ static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 	int rc;
 	unsigned int dir_size, namelen;
 	void *p;
+
+	rc = dbfs_name_validate(name);
+	if (rc)
+		return rc;
 
 	/* read parent directory from database */
 	rc = dbfs_dir_read(parent, &val);
@@ -449,6 +466,30 @@ int dbfs_symlink_write(guint64 ino, const char *link)
 	return gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
 }
 
+int dbfs_link(struct dbfs_inode *ino, guint64 ino_n, guint64 parent,
+	      const char *name)
+{
+	guint32 nlink;
+	int rc;
+
+	/* make sure it doesn't exist yet */
+	rc = dbfs_dir_append(parent, ino_n, name);
+	if (rc)
+		return rc;
+
+	/* increment link count */
+	nlink = GUINT32_FROM_LE(ino->raw_inode->nlink);
+	nlink++;
+	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
+
+	/* write inode; if fails, undo directory modification */
+	rc = dbfs_inode_write(ino);
+	if (rc)
+		dbfs_dirent_del(parent, name);
+
+	return rc;
+}
+
 int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 {
 	struct dbfs_inode *ino;
@@ -497,15 +538,6 @@ out:
 	return rc;
 }
 
-static int dbfs_name_validate(const char *name)
-{
-	if (strchr(name, '/'))
-		return -EINVAL;
-	if (!g_utf8_validate(name, -1, NULL))
-		return -EINVAL;
-	return 0;
-}
-
 int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
 	       struct dbfs_inode **ino_out)
 {
@@ -515,10 +547,6 @@ int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
 	guint64 ino_n;
 
 	*ino_out = NULL;
-
-	rc = dbfs_name_validate(name);
-	if (rc)
-		return rc;
 
 	rc = dbfs_inode_next(&ino);
 	if (rc)
