@@ -9,7 +9,7 @@ int main (int argc, char *argv[])
 
 	fs = dbfs_new();
 
-	rc = dbfs_open(fs, DB_RECOVER, 0, "dbfsck");
+	rc = dbfs_open(fs, DB_RECOVER_FATAL, DB_CREATE, "dbfsck");
 	if (rc) {
 		perror("dbfsck");
 		return 1;
