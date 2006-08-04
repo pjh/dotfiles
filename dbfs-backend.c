@@ -663,6 +663,7 @@ static int dbfs_xattr_list_del(guint64 ino, const char *name)
 	long bytes;
 	void *mem;
 	size_t ssize = 0;
+	unsigned int entries = 0;
 
 	/* get list from db */
 	rc = dbfs_xattr_list_read(&key, &val, keystr, ino);
@@ -675,6 +676,7 @@ static int dbfs_xattr_list_del(guint64 ino, const char *name)
 	mem = val.data;
 	bytes = val.size;
 	while (bytes > 0) {
+		entries++;
 		ent = mem;
 		ssize = dbfs_xlist_next(GUINT32_FROM_LE(ent->namelen));
 		if (ssize > bytes) {		/* data corrupt */
@@ -694,12 +696,19 @@ static int dbfs_xattr_list_del(guint64 ino, const char *name)
 		goto out;
 	}
 
-	/* swallow entry */
-	memmove(mem, mem + ssize, bytes - ssize);
-	val.size -= ssize;
+	/* if at least one entry will exist post-delete, update db */
+	if (entries > 1) {
+		/* swallow entry */
+		memmove(mem, mem + ssize, bytes - ssize);
+		val.size -= ssize;
 
-	/* store new list in db */
-	rc = gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+		/* store new list in db */
+		rc = gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+	}
+
+	/* otherwise, delete db entry */
+	else
+		rc = dbmeta_del(keystr);
 
 out:
 	free(val.data);
@@ -866,25 +875,16 @@ int dbfs_xattr_set(guint64 ino_n, const char *name, const void *buf,
 int dbfs_xattr_remove(guint64 ino_n, const char *name, gboolean update_list)
 {
 	char key_str[DBFS_XATTR_NAME_LEN + 32];
-	DBT key;
-	int rc;
 
 	snprintf(key_str, sizeof(key_str),
 		 "/xattr/%Lu/%s", (unsigned long long) ino_n, name);
 
-	memset(&key, 0, sizeof(key));
-	key.data = key_str;
-	key.size = strlen(key_str);
-
 	if (update_list) {
-		rc = dbfs_xattr_list_del(ino_n, name);
+		int rc = dbfs_xattr_list_del(ino_n, name);
 		if (rc)
 			return rc;
 	}
 
-	rc = gfs->meta->del(gfs->meta, NULL, &key, 0);
-	if (rc == DB_NOTFOUND)
-		return -ENOENT;
-	return rc ? -EIO : 0;
+	return dbmeta_del(key_str);
 }
 
