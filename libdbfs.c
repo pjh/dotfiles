@@ -9,7 +9,7 @@
 
 struct dbfs *gfs;
 
-int dbfs_open(struct dbfs *fs, unsigned int flags, const char *errpfx)
+int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags, const char *errpfx)
 {
 	const char *db_home, *db_password;
 	int rc;
@@ -53,7 +53,7 @@ int dbfs_open(struct dbfs *fs, unsigned int flags, const char *errpfx)
 	/* init DB transactional environment, stored in directory db_home */
 	rc = fs->env->open(fs->env, db_home,
 			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
-			  DB_INIT_TXN | DB_RECOVER | flags, 0666);
+			  DB_INIT_TXN | env_flags | flags, 0666);
 	if (rc) {
 		fs->env->err(fs->env, rc, "fs->env->open");
 		goto err_out;

@@ -42,7 +42,7 @@ static void dbfs_op_init(void *userdata)
 
 	fs = dbfs_new();
 
-	rc = dbfs_open(fs, 0, "dbfs");
+	rc = dbfs_open(fs, 0, 0, "dbfs");
 	if (rc)
 		abort();			/* TODO: improve */
 

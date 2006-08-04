@@ -50,7 +50,7 @@ err_die:
 int main (int argc, char *argv[])
 {
 	struct dbfs *fs = dbfs_new();
-	int rc = dbfs_open(fs, DB_CREATE | DB_TRUNCATE, "mkdbfs");
+	int rc = dbfs_open(fs, 0, DB_CREATE | DB_TRUNCATE, "mkdbfs");
 	if (rc) {
 		perror("mkdbfs");
 		exit(1);
