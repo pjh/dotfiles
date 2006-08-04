@@ -16,6 +16,8 @@ enum {
 
 	DBFS_XATTR_NAME_LEN	= 256,
 	DBFS_XATTR_MAX_LEN	= (1024 * 1024),
+
+	DBFS_XLIST_ALIGN	= 8,
 };
 
 enum {
@@ -40,6 +42,11 @@ struct dbfs_dirent {
 	guint16		res2;
 	guint16		namelen;
 	guint64		ino;
+	char		name[0];
+} __attribute__ ((packed));
+
+struct dbfs_xlist {
+	guint32		namelen;
 	char		name[0];
 } __attribute__ ((packed));
 
@@ -99,11 +106,12 @@ extern int dbfs_mknod(guint64 parent, const char *name,
 extern int dbfs_symlink_write(guint64 ino, const char *link);
 extern int dbfs_inode_del(struct dbfs_inode *ino);
 extern int dbfs_xattr_get(guint64 ino_n, const char *name,
-			  char **buf_out, size_t *buflen_out);
+			  void **buf_out, size_t *buflen_out);
 extern int dbfs_xattr_set(guint64 ino_n, const char *name,
-			  const char *buf, size_t buflen,
+			  const void *buf, size_t buflen,
 			  int flags);
-extern int dbfs_xattr_remove(guint64 ino_n, const char *name);
+extern int dbfs_xattr_remove(guint64, const char *, gboolean);
+extern int dbfs_xattr_list(guint64 ino, void **buf_out, size_t *buflen_out);
 
 /* libdbfs.c */
 extern int dbfs_open(struct dbfs *fs);
@@ -119,6 +127,11 @@ extern void dbfs_inode_free(struct dbfs_inode *ino);
 static inline size_t dbfs_dirent_next(guint16 namelen)
 {
 	return ALIGN(sizeof(struct dbfs_dirent) + namelen, DBFS_DIRENT_ALIGN);
+}
+
+static inline size_t dbfs_xlist_next(guint16 namelen)
+{
+	return ALIGN(sizeof(struct dbfs_xlist) + namelen, DBFS_XLIST_ALIGN);
 }
 
 #endif /* __DBFS_H__ */

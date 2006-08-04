@@ -362,7 +362,7 @@ static void dirbuf_add(struct dirbuf *b, const char *name, fuse_ino_t ino)
 #endif
 
 /* stock function copied from FUSE template */
-static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
+static int reply_buf_limited(fuse_req_t req, const void *buf, size_t bufsize,
 			     off_t off, size_t maxsize)
 {
 	if (off < bufsize)
@@ -413,7 +413,7 @@ static void dbfs_op_setxattr(fuse_req_t req, fuse_ino_t ino,
 static void dbfs_op_getxattr(fuse_req_t req, fuse_ino_t ino,
 			     const char *name, size_t size)
 {
-	char *buf = NULL;
+	void *buf = NULL;
 	size_t buflen = 0;
 	int rc;
 
@@ -437,10 +437,32 @@ err_out:
 	fuse_reply_err(req, -rc);
 }
 
+static void dbfs_op_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
+{
+	int rc;
+	void *buf;
+	size_t buflen;
+
+	rc = dbfs_xattr_list(ino, &buf, &buflen);
+	if (rc < 0) {
+		fuse_reply_err(req, -rc);
+		return;
+	}
+
+	if (size == 0)
+		fuse_reply_xattr(req, buflen);
+	else if (size < buflen)
+		fuse_reply_err(req, ERANGE);
+	else
+		fuse_reply_buf(req, buf, buflen);
+	
+	free(buf);
+}
+
 static void dbfs_op_removexattr(fuse_req_t req, fuse_ino_t ino,
 				const char *name)
 {
-	int rc = dbfs_xattr_remove(ino, name);
+	int rc = dbfs_xattr_remove(ino, name, TRUE);
 	fuse_reply_err(req, -rc);
 }
 
@@ -472,7 +494,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.statfs		= NULL,
 	.setxattr	= dbfs_op_setxattr,
 	.getxattr	= dbfs_op_getxattr,
-	.listxattr	= NULL,
+	.listxattr	= dbfs_op_listxattr,
 	.removexattr	= dbfs_op_removexattr,
 	.access		= NULL,
 	.create		= NULL,
