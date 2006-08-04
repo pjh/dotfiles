@@ -10,103 +10,6 @@
 #include <db.h>
 #include "dbfs.h"
 
-struct dbfs *gfs;
-
-void create_db(void)
-{
-	const char *db_home, *db_password;
-	int rc;
-	unsigned int flags = 0;
-
-	/*
-	 * open DB environment
-	 */
-
-	db_home = getenv("DB_HOME");
-	if (!db_home) {
-		fprintf(stderr, "DB_HOME not set\n");
-		exit(1);
-	}
-
-	/* this isn't a very secure way to handle passwords */
-	db_password = getenv("DB_PASSWORD");
-
-	rc = db_env_create(&gfs->env, 0);
-	if (rc) {
-		fprintf(stderr, "gfs->env_create failed: %d\n", rc);
-		exit(1);
-	}
-
-	gfs->env->set_errfile(gfs->env, stderr);
-	gfs->env->set_errpfx(gfs->env, "mkdbfs");
-
-	if (db_password) {
-		flags |= DB_ENCRYPT;
-		rc = gfs->env->set_encrypt(gfs->env, db_password, DB_ENCRYPT_AES);
-		if (rc) {
-			gfs->env->err(gfs->env, rc, "gfs->env->set_encrypt");
-			goto err_out;
-		}
-
-		/* FIXME: this isn't a very good way to shroud the password */
-		if (putenv("DB_PASSWORD=X"))
-			perror("putenv (SECURITY WARNING)");
-	}
-
-	/* init DB transactional environment, stored in directory db_home */
-	rc = gfs->env->open(gfs->env, db_home,
-			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
-			  DB_INIT_TXN | DB_CREATE | flags, 0666);
-	if (rc) {
-		gfs->env->err(gfs->env, rc, "gfs->env->open");
-		goto err_out;
-	}
-
-	/*
-	 * Open metadata database
-	 */
-
-	rc = db_create(&gfs->meta, gfs->env, 0);
-	if (rc) {
-		gfs->env->err(gfs->env, rc, "db_create");
-		goto err_out;
-	}
-
-	rc = gfs->meta->open(gfs->meta, NULL, "metadata", NULL,
-			   DB_HASH,
-			   DB_AUTO_COMMIT | DB_CREATE | DB_TRUNCATE | flags,
-			   0666);
-	if (rc) {
-		gfs->meta->err(gfs->meta, rc, "gfs->meta->open");
-		goto err_out_meta;
-	}
-
-	/* our data items are small, so use the smallest possible page
-	 * size.  This is a guess, and should be verified by looking at
-	 * overflow pages and other DB statistics.
-	 */
-	rc = gfs->meta->set_pagesize(gfs->meta, 512);
-	if (rc) {
-		gfs->meta->err(gfs->meta, rc, "gfs->meta->set_pagesize");
-		goto err_out_meta;
-	}
-
-	/* fix everything as little endian */
-	rc = gfs->meta->set_lorder(gfs->meta, 1234);
-	if (rc) {
-		gfs->meta->err(gfs->meta, rc, "gfs->meta->set_lorder");
-		goto err_out_meta;
-	}
-
-	return;
-
-err_out_meta:
-	gfs->meta->close(gfs->meta, 0);
-err_out:
-	gfs->env->close(gfs->env, 0);
-	exit(1);
-}
-
 static void make_root_dir(void)
 {
 	struct dbfs_inode *ino;
@@ -146,10 +49,15 @@ err_die:
 
 int main (int argc, char *argv[])
 {
-	gfs = dbfs_new();
-	create_db();
+	struct dbfs *fs = dbfs_new();
+	int rc = dbfs_open(fs, DB_CREATE | DB_TRUNCATE, "mkdbfs");
+	if (rc) {
+		perror("mkdbfs");
+		exit(1);
+	}
+
 	make_root_dir();
-	dbfs_close(gfs);
+	dbfs_close(fs);
 	return 0;
 }
 

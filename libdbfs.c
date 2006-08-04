@@ -9,11 +9,10 @@
 
 struct dbfs *gfs;
 
-int dbfs_open(struct dbfs *fs)
+int dbfs_open(struct dbfs *fs, unsigned int flags, const char *errpfx)
 {
 	const char *db_home, *db_password;
 	int rc;
-	unsigned int flags = 0;
 
 	/*
 	 * open DB environment
@@ -36,7 +35,7 @@ int dbfs_open(struct dbfs *fs)
 
 	/* stderr is wrong; should use syslog instead */
 	fs->env->set_errfile(fs->env, stderr);
-	fs->env->set_errpfx(fs->env, "dbfs");
+	fs->env->set_errpfx(fs->env, errpfx);
 
 	if (db_password) {
 		flags |= DB_ENCRYPT;
@@ -54,7 +53,7 @@ int dbfs_open(struct dbfs *fs)
 	/* init DB transactional environment, stored in directory db_home */
 	rc = fs->env->open(fs->env, db_home,
 			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
-			  DB_INIT_TXN | DB_RECOVER | DB_CREATE | flags, 0666);
+			  DB_INIT_TXN | DB_RECOVER | flags, 0666);
 	if (rc) {
 		fs->env->err(fs->env, rc, "fs->env->open");
 		goto err_out;
