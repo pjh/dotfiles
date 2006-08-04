@@ -212,8 +212,7 @@ static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	int rc = dbfs_unlink(parent, name, 0);
-	if (rc)
-		fuse_reply_err(req, -rc);
+	fuse_reply_err(req, rc ? -rc : 0);
 }
 
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
@@ -234,12 +233,12 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	/* get inode number associated with name */
 	rc = dbfs_dir_lookup(parent, name, &ino_n);
 	if (rc)
-		goto err_out;
+		goto out;
 
 	/* read dir associated with name */
 	rc = dbfs_dir_read(ino_n, &val);
 	if (rc)
-		goto err_out;
+		goto out;
 
 	/* make sure dir only contains "." and ".." */
 	rc = dbfs_dir_foreach(val.data, dbfs_chk_empty, NULL);
@@ -247,17 +246,13 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 	/* if dbfs_chk_empty() returns non-zero, dir is not empty */
 	if (rc)
-		goto err_out;
+		goto out;
 
 	/* dir is empty, go ahead and unlink */
 	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
-	if (rc)
-		goto err_out;
 
-	return;
-
-err_out:
-	fuse_reply_err(req, -rc);
+out:
+	fuse_reply_err(req, rc ? -rc : 0);
 }
 
 static void dbfs_op_symlink(fuse_req_t req, const char *link,
