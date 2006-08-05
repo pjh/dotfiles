@@ -1,4 +1,14 @@
 
+Version 0.4 -- August 5, 2006
+
+- Still completely untested.  Probably doesn't work.
+- Add SCHEMA doc, describing database layout.
+- add hardlink support
+- add extended attribute support
+- add new FS check program 'dbfsck'
+- add support for access(2), open(2), read(2)
+- bug fixes, cleanups
+
 Version 0.1 -- April 27, 2006
 
 - Nothing works yet.  Just a skeleton.
