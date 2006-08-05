@@ -46,7 +46,8 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 	return 0;
 }
 
-int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags, const char *errpfx)
+int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
+	      const char *errpfx)
 {
 	const char *db_home, *db_password;
 	int rc;
