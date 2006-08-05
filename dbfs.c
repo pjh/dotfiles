@@ -488,6 +488,43 @@ static void dbfs_op_removexattr(fuse_req_t req, fuse_ino_t ino,
 	fuse_reply_err(req, -rc);
 }
 
+static void dbfs_op_access(fuse_req_t req, fuse_ino_t ino_n, int mask)
+{
+	struct dbfs_inode *ino;
+	const struct fuse_ctx *ctx;
+	int rc;
+	guint32 mode, uid, gid;
+
+	ctx = fuse_req_ctx(req);
+	g_assert(ctx != NULL);
+
+	rc = dbfs_inode_read(ino_n, &ino);
+	if (rc)
+		goto out;
+
+	mode = GUINT32_FROM_LE(ino->raw_inode->mode);
+	uid = GUINT32_FROM_LE(ino->raw_inode->uid);
+	gid = GUINT32_FROM_LE(ino->raw_inode->gid);
+
+	if (uid == ctx->uid)
+		mode >>= 8;
+	else if (gid == ctx->gid)
+		mode >>= 4;
+
+	rc = 0;
+	if ((mask & R_OK) && (!(mode & S_IROTH)))
+		rc = -EACCES;
+	if ((mask & W_OK) && (!(mode & S_IWOTH)))
+		rc = -EACCES;
+	if ((mask & X_OK) && (!(mode & S_IXOTH)))
+		rc = -EACCES;
+
+	dbfs_inode_free(ino);
+
+out:
+	fuse_reply_err(req, -rc);
+}
+
 static struct fuse_lowlevel_ops dbfs_ops = {
 	.init		= dbfs_op_init,
 	.destroy	= dbfs_op_destroy,
@@ -518,7 +555,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.getxattr	= dbfs_op_getxattr,
 	.listxattr	= dbfs_op_listxattr,
 	.removexattr	= dbfs_op_removexattr,
-	.access		= NULL,
+	.access		= dbfs_op_access,
 	.create		= NULL,
 };
 
