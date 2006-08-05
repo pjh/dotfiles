@@ -1,6 +1,6 @@
 This program implements a FUSE filesystem, backed by Berkeley DB.
 
-The latest version of fuse-ext2 can be found in the git repository
+The latest version of fuse-dbfs can be found in the git repository
 git://git.kernel.org/pub/scm/fs/fuse/dbfs.git
 
 Software home:
