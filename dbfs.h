@@ -24,18 +24,18 @@
 #define ALIGN(x,a) (((x)+(a)-1)&~((a)-1))
 
 enum {
-	DBFS_BLK_ID_LEN		= 20,
+	DBFS_BLK_ID_LEN		= 20,		/* block id (sha1 hash) len */
 
 	DBFS_UNLINK_DIR		= (1 << 0),
 
-	DBFS_ROOT_INO		= 1,
+	DBFS_ROOT_INO		= 1,		/* root inode number */
 
-	DBFS_DIRENT_ALIGN	= 8,
+	DBFS_DIRENT_ALIGN	= 8,	/* struct dbfs_dirent alignment */
 
-	DBFS_XATTR_NAME_LEN	= 256,
+	DBFS_XATTR_NAME_LEN	= 256,	/* extended attr limits */
 	DBFS_XATTR_MAX_LEN	= (1024 * 1024),
 
-	DBFS_XLIST_ALIGN	= 8,
+	DBFS_XLIST_ALIGN	= 8,	/* struct dbfs_xlist alignment */
 
 	/* our data items are small, so use the smallest possible page
 	 * size.  This is a guess, and should be verified by looking at
@@ -48,10 +48,11 @@ enum {
 	 */
 	DBFS_PGSZ_DATA		= 2048,
 
-	DBFS_MAX_EXT_LEN	= (4 * 1024 * 1024),
+	DBFS_MAX_EXT_LEN	= (4 * 1024 * 1024),	/* max extent len */
 };
 
 enum {
+	/* dirent magic number */
 	DBFS_DE_MAGIC		= 0xd4d4d4d4U,
 };
 
