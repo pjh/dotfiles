@@ -62,8 +62,9 @@ struct dbfs_xlist {
 } __attribute__ ((packed));
 
 struct dbfs_extent {
-	dbfs_blk_id_t	id;
-	guint64		size;
+	guint32			off;		/* offset into block */
+	guint32			len;		/* length of fragment */
+	dbfs_blk_id_t		id;		/* block id */
 } __attribute__ ((packed));
 
 struct dbfs_raw_inode {
