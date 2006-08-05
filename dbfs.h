@@ -124,6 +124,7 @@ extern int dbfs_xattr_set(guint64 ino_n, const char *name,
 			  int flags);
 extern int dbfs_xattr_remove(guint64, const char *, gboolean);
 extern int dbfs_xattr_list(guint64 ino, void **buf_out, size_t *buflen_out);
+extern int dbfs_read(guint64, guint64, size_t, void **);
 
 /* libdbfs.c */
 extern int dbfs_open(struct dbfs *, unsigned int, unsigned int, const char *);

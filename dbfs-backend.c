@@ -24,6 +24,12 @@ struct dbfs_dirscan_info {
 	void			*end_ent;
 };
 
+struct dbfs_ext_list {
+	dbfs_blk_id_t		id;		/* block id */
+	guint64			off;		/* offset into block */
+	guint64			len;		/* length of fragment */
+};
+
 static int dbmeta_del(const char *key_str)
 {
 	DBT key;
@@ -886,5 +892,169 @@ int dbfs_xattr_remove(guint64 ino_n, const char *name, gboolean update_list)
 	}
 
 	return dbmeta_del(key_str);
+}
+
+static void ext_list_free(GList *ext_list)
+{
+	GList *tmp;
+
+	tmp = ext_list;
+	while (tmp) {
+		g_free(tmp->data);
+		tmp = tmp->next;
+	}
+	g_list_free(ext_list);
+}
+
+static int dbfs_ext_match(struct dbfs_inode *ino, guint64 off, guint64 rd_size,
+			  GList **ext_list_out)
+{
+	struct dbfs_ext_list *el;
+	guint64 pos, size, ext_list_want, bytes = 0;
+	GList *ext_list = *ext_list_out;
+	gboolean in_frag;
+	unsigned int i;
+	int rc;
+
+	pos = 0;
+	in_frag = FALSE;
+	ext_list_want = rd_size;
+	for (i = 0; i < ino->n_extents; i++) {
+		size = GUINT64_FROM_LE(ino->raw_inode->blocks[i].size);
+
+		if ((!in_frag) && ((pos + size) > off)) {
+			el = g_new(struct dbfs_ext_list, 1);
+			if (!el) {
+				rc = -ENOMEM;
+				goto err_out;
+			}
+
+			memcpy(&el->id, &ino->raw_inode->blocks[i].id,
+			       sizeof(dbfs_blk_id_t));
+			el->off = off - pos;
+			el->len = MIN(size - el->off, ext_list_want);
+
+			ext_list = g_list_append(ext_list, el);
+			ext_list_want -= el->len;
+			bytes += el->len;
+			in_frag = TRUE;
+		}
+
+		else if (in_frag) {
+			el = g_new(struct dbfs_ext_list, 1);
+			if (!el) {
+				rc = -ENOMEM;
+				goto err_out;
+			}
+
+			memcpy(&el->id, &ino->raw_inode->blocks[i].id,
+			       sizeof(dbfs_blk_id_t));
+			el->off = 0;
+			el->len = MIN(size, ext_list_want);
+
+			ext_list = g_list_append(ext_list, el);
+			ext_list_want -= el->len;
+			bytes += el->len;
+
+			if (ext_list_want == 0)
+				break;
+		}
+
+		pos += size;
+	}
+
+	*ext_list_out = ext_list;
+	return (int) bytes;
+
+err_out:
+	ext_list_free(ext_list);
+	*ext_list_out = NULL;
+	return rc;
+}
+
+static int dbfs_ext_read(dbfs_blk_id_t *id, void **buf, size_t *buflen)
+{
+	DBT key, val;
+	int rc;
+
+	memset(&key, 0, sizeof(key));
+	key.data = id;
+	key.size = DBFS_BLK_ID_LEN;
+
+	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
+
+	rc = gfs->data->get(gfs->data, NULL, &key, &val, 0);
+	if (rc == DB_NOTFOUND)
+		return -ENOENT;
+	if (rc)
+		return rc;
+
+	*buf = val.data;
+	*buflen = val.size;
+	return 0;
+}
+
+int dbfs_read(guint64 ino_n, guint64 off, size_t read_req_size,
+	      void **buf_out)
+{
+	struct dbfs_inode *ino;
+	GList *tmp, *ext_list = NULL;
+	void *buf = NULL;
+	size_t buflen = 0;
+	unsigned int pos = 0;
+	int rc;
+
+	rc = dbfs_inode_read(ino_n, &ino);
+	if (rc)
+		goto out;
+
+	rc = dbfs_ext_match(ino, off, read_req_size, &ext_list);
+	if (rc <= 0)
+		goto out_ino;
+	buflen = rc;
+
+	buf = malloc(buflen);
+	if (!buf) {
+		rc = -ENOMEM;
+		goto out_list;
+	}
+
+	tmp = ext_list;
+	while (tmp) {
+		struct dbfs_ext_list *el;
+		void *frag;
+		size_t fraglen;
+
+		el = tmp->data;
+		rc = dbfs_ext_read(&el->id, &frag, &fraglen);
+		if (rc) {
+			free(buf);
+			buf = NULL;
+			goto out_list;
+		}
+		if ((el->off + el->len) > fraglen) {
+			free(frag);
+			free(buf);
+			buf = NULL;
+			rc = -EINVAL;
+			goto out_list;
+		}
+
+		memcpy(buf + pos, frag + el->off, el->len);
+		free(frag);
+
+		pos += el->len;
+
+		tmp = tmp->next;
+	}
+
+out_list:
+	ext_list_free(ext_list);
+out_ino:
+	dbfs_inode_free(ino);
+out:
+	*buf_out = buf;
+	return rc < 0 ? rc : buflen;
 }
 

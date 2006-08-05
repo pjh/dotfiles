@@ -239,6 +239,30 @@ err_out:
 	fuse_reply_err(req, -rc);
 }
 
+static void dbfs_op_open(fuse_req_t req, fuse_ino_t ino,
+			 struct fuse_file_info *fi)
+{
+	fi->direct_io = 0;
+	fi->keep_cache = 1;
+	fuse_reply_open(req, fi);
+}
+
+static void dbfs_op_read(fuse_req_t req, fuse_ino_t ino, size_t size,
+			 off_t off, struct fuse_file_info *fi)
+{
+	void *buf = NULL;
+	int rc;
+
+	rc = dbfs_read(ino, off, size, &buf);
+	if (rc < 0) {
+		fuse_reply_err(req, -rc);
+		return;
+	}
+
+	fuse_reply_buf(req, buf, rc);
+	free(buf);
+}
+
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
 {
 	if ((GUINT16_FROM_LE(de->namelen) == 1) && (!memcmp(de->name, ".", 1)))
@@ -479,8 +503,8 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.symlink	= dbfs_op_symlink,
 	.rename		= NULL,
 	.link		= dbfs_op_link,
-	.open		= NULL,
-	.read		= NULL,
+	.open		= dbfs_op_open,
+	.read		= dbfs_op_read,
 	.write		= NULL,
 	.flush		= NULL,
 	.release	= NULL,
