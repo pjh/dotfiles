@@ -65,3 +65,22 @@ key:	/symlink/%Lu		inode number associated with this symlink
 value:	UTF8 string, containing link text (variable length)
 
 
+extended (named) attributes
+---------------------------
+name max length:	256
+data max length:	1MB (1024 * 1024 bytes)
+
+key:	/xattr/%Lu/%s		inode number, attribute name
+
+value:	variable-length binary data
+
+
+key:	/xattr/%Lu		inode number
+
+value:	An array of struct dbfs_xlist, aligned on DBFS_XLIST_ALIGN bounds.
+
+struct dbfs_xlist:
+guint32		namelen		length of attribute name
+char		name[0]		UTF8 attribute name (namelen bytes)
+0-7 bytes			alignment padding
+
