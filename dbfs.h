@@ -49,6 +49,8 @@ enum {
 	DBFS_PGSZ_DATA		= 2048,
 
 	DBFS_MAX_EXT_LEN	= (4 * 1024 * 1024),	/* max extent len */
+
+	DBFS_ZERO_CMP_BLK_SZ	= 8192,
 };
 
 enum {

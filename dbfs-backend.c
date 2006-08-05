@@ -682,6 +682,30 @@ err_out:
 	return rc;
 }
 
+static const char zero_block[DBFS_ZERO_CMP_BLK_SZ];
+
+static gboolean is_zero_buf(const void *buf, size_t buflen)
+{
+	while (buflen > 0) {
+		size_t cmp_size;
+		int rc;
+
+		cmp_size = MIN(buflen, DBFS_ZERO_CMP_BLK_SZ);
+		rc = memcmp(buf, zero_block, cmp_size);
+		if (rc)
+			return FALSE;
+
+		buflen -= cmp_size;
+	}
+
+	return TRUE;
+}
+
+static gboolean is_null_id(dbfs_blk_id_t *id)
+{
+	return is_zero_buf(id, DBFS_BLK_ID_LEN);
+}
+
 static int dbfs_ext_read(dbfs_blk_id_t *id, void **buf, size_t *buflen)
 {
 	DBT key, val;
@@ -733,26 +757,31 @@ int dbfs_read(guint64 ino_n, guint64 off, size_t read_req_size,
 	tmp = ext_list;
 	while (tmp) {
 		struct dbfs_extent *ext;
-		void *frag;
-		size_t fraglen;
 
 		ext = tmp->data;
-		rc = dbfs_ext_read(&ext->id, &frag, &fraglen);
-		if (rc) {
-			free(buf);
-			buf = NULL;
-			goto out_list;
-		}
-		if ((ext->off + ext->len) > fraglen) {
-			free(frag);
-			free(buf);
-			buf = NULL;
-			rc = -EINVAL;
-			goto out_list;
-		}
+		if (is_null_id(&ext->id)) {
+			memset(buf + pos, 0, ext->len);
+		} else {
+			void *frag;
+			size_t fraglen;
 
-		memcpy(buf + pos, frag + ext->off, ext->len);
-		free(frag);
+			rc = dbfs_ext_read(&ext->id, &frag, &fraglen);
+			if (rc) {
+				free(buf);
+				buf = NULL;
+				goto out_list;
+			}
+			if ((ext->off + ext->len) > fraglen) {
+				free(frag);
+				free(buf);
+				buf = NULL;
+				rc = -EINVAL;
+				goto out_list;
+			}
+
+			memcpy(buf + pos, frag + ext->off, ext->len);
+			free(frag);
+		}
 
 		pos += ext->len;
 
@@ -810,8 +839,12 @@ static int dbfs_write_buf(const void *buf, size_t buflen,
 	if (buflen == 0 || buflen > DBFS_MAX_EXT_LEN)
 		return -EINVAL;
 
-	ext->off = 0;
+	memset(ext, 0, sizeof(*ext));
 	ext->len = buflen;
+
+	if (is_zero_buf(buf, buflen))
+		return 0;
+
 	SHA1(buf, buflen, (unsigned char *) &ext->id);
 
 	memset(&key, 0, sizeof(key));
@@ -845,6 +878,9 @@ static int dbfs_data_unref(dbfs_blk_id_t *id)
 	guint32 refs;
 	DBT key, val;
 	int rc, rc2;
+
+	if (is_null_id(id))
+		return 0;
 
 	memset(&key, 0, sizeof(key));
 	key.data = id;
