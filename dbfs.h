@@ -103,6 +103,7 @@ struct dbfs {
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 
 /* dbfs-backend.c */
+extern int dbmeta_del(const char *key_str);
 extern int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out);
 extern int dbfs_dir_read(guint64 ino, DBT *val);
 extern int dbfs_symlink_read(guint64 ino, DBT *val);
