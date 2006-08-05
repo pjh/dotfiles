@@ -8,6 +8,7 @@
 #include <time.h>
 #include <glib.h>
 #include <db.h>
+#include <openssl/sha.h>
 #include "dbfs.h"
 
 struct dbfs_lookup_info {
@@ -749,3 +750,117 @@ out:
 	return rc < 0 ? rc : buflen;
 }
 
+#if 0
+static int dbfs_write_unique_buf(DBT *key, const void *buf, size_t buflen)
+{
+	struct dbfs_hashref ref;
+	DBT val;
+	int rc;
+
+	ref.refs = GUINT32_TO_LE(1);
+
+	memset(&val, 0, sizeof(val));
+	val.data = &ref;
+	val.size = sizeof(ref);
+
+	rc = gfs->hashref->put(gfs->hashref, NULL, key, &val, 0);
+	if (rc)
+		return -EIO;
+
+	memset(&val, 0, sizeof(val));
+	val.data = (void *) buf;
+	val.size = buflen;
+
+	rc = gfs->data->put(gfs->data, NULL, key, &val, DB_NOOVERWRITE);
+	if (rc) {
+		memset(&val, 0, sizeof(val));
+		val.data = &ref;
+		val.size = sizeof(ref);
+		gfs->hashref->del(gfs->hashref, NULL, key, 0);
+
+		return -EIO;
+	}
+}
+
+static int dbfs_write_buf(const void *buf, size_t buflen,
+			  struct dbfs_extent *ext)
+{
+	struct dbfs_hashref *ref;
+	DBT key, val;
+	int rc;
+
+	if (buflen == 0 || buflen > DBFS_MAX_EXT_LEN)
+		return -EINVAL;
+
+	ext->off = 0;
+	ext->len = buflen;
+	SHA1(buf, buflen, (unsigned char *) &ext->id);
+
+	memset(&key, 0, sizeof(key));
+	key.data = &ext->id;
+	key.size = DBFS_BLK_ID_LEN;
+
+	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
+
+	rc = gfs->hashref->get(gfs->hashref, NULL, &key, &val, 0);
+	if (rc && (rc != DB_NOTFOUND))
+		return -EIO;
+
+	if (rc == DB_NOTFOUND)
+		return dbfs_write_unique_buf(&key, buf, buflen);
+
+	ref = val.data;
+	g_assert(val.size == sizeof(*ref));
+
+	ref->refs = GUINT32_TO_LE(GUINT32_FROM_LE(ref->refs) + 1);
+
+	rc = gfs->hashref->put(gfs->hashref, NULL, &key, &val, 0);
+	free(val.data);
+
+	return rc ? -EIO : 0;
+}
+
+static int dbfs_data_unref(dbfs_blk_id_t *id)
+{
+	struct dbfs_hashref *ref;
+	guint32 refs;
+	DBT key, val;
+	int rc, rc2;
+
+	memset(&key, 0, sizeof(key));
+	key.data = id;
+	key.size = DBFS_BLK_ID_LEN;
+
+	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
+
+	rc = gfs->hashref->get(gfs->hashref, NULL, &key, &val, 0);
+	if (rc == DB_NOTFOUND)
+		return -ENOENT;
+	if (rc)
+		return -EIO;
+
+	ref = val.data;
+	g_assert(val.size == sizeof(*ref));
+	refs = GUINT32_FROM_LE(ref->refs);
+
+	if (refs > 1) {
+		refs--;
+		ref->refs = GUINT32_TO_LE(refs);
+
+		rc = gfs->hashref->put(gfs->hashref, NULL, &key, &val, 0);
+		free(val.data);
+
+		return rc ? -EIO : 0;
+	}
+
+	free(val.data);
+
+	rc = gfs->hashref->del(gfs->hashref, NULL, &key, 0);
+	rc2 = gfs->data->del(gfs->data, NULL, &key, 0);
+
+	return (rc || rc2) ? -EIO : 0;
+}
+
+#endif

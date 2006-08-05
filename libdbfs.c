@@ -103,7 +103,11 @@ int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
 
 	rc = open_db(fs->env, &fs->meta, "metadata", DBFS_PGSZ_METADATA, flags);
 	if (rc)
-		goto err_out_meta;
+		goto err_out;
+
+	rc = open_db(fs->env, &fs->hashref, "hash", DBFS_PGSZ_METADATA, flags);
+	if (rc)
+		goto err_out;
 
 	rc = open_db(fs->env, &fs->data, "data", DBFS_PGSZ_DATA, flags);
 	if (rc)
@@ -120,6 +124,8 @@ err_out:
 
 void dbfs_close(struct dbfs *fs)
 {
+	fs->data->close(fs->data, 0);
+	fs->hashref->close(fs->hashref, 0);
 	fs->meta->close(fs->meta, 0);
 	fs->env->close(fs->env, 0);
 

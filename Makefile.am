@@ -11,7 +11,7 @@ sbin_PROGRAMS	= dbfs mkdbfs dbfsck
 libdbfs_a_SOURCES = libdbfs.c
 
 dbfs_SOURCES	= dbfs.c dbfs.h dbfs-backend.c xattr.c
-dbfs_LDADD	= @GLIB_LIBS@ @FUSE_LIBS@ @DB_LIBS@ libdbfs.a
+dbfs_LDADD	= @GLIB_LIBS@ @FUSE_LIBS@ @DB_LIBS@ @CRYPTO_LIBS@ libdbfs.a
 
 mkdbfs_SOURCES	= mkdbfs.c
 mkdbfs_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a

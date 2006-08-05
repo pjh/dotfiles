@@ -5,3 +5,10 @@ git://git.kernel.org/pub/scm/fs/fuse/dbfs.git
 
 Software home:
 http://www.kernel.org/pub/linux/kernel/people/jgarzik/fs/
+
+Build (and probably runtime) dependencies:
+* GLib 2.x
+* DB 4.x
+* FUSE
+* OpenSSL, or compatible libcrypto (for SHA1)
+

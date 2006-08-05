@@ -29,6 +29,8 @@ enum {
 	 * as well as large ones
 	 */
 	DBFS_PGSZ_DATA		= 2048,
+
+	DBFS_MAX_EXT_LEN	= (4 * 1024 * 1024),
 };
 
 enum {
@@ -67,6 +69,10 @@ struct dbfs_extent {
 	dbfs_blk_id_t		id;		/* block id */
 } __attribute__ ((packed));
 
+struct dbfs_hashref {
+	guint32			refs;
+} __attribute__ ((packed));
+
 struct dbfs_raw_inode {
 	guint64		ino;
 	guint64		version;
@@ -96,6 +102,7 @@ struct dbfs {
 	DB_ENV			*env;
 	DB			*meta;
 	DB			*data;
+	DB			*hashref;
 
 	guint64			next_inode;
 };
