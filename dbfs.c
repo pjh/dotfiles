@@ -36,7 +36,6 @@ static void dbfs_reply_ino(fuse_req_t req, struct dbfs_inode *ino)
 
 static void dbfs_op_init(void *userdata)
 {
-	struct dbfs **fs_io = userdata;
 	struct dbfs *fs;
 	int rc;
 
@@ -46,18 +45,17 @@ static void dbfs_op_init(void *userdata)
 	if (rc)
 		abort();			/* TODO: improve */
 
-	*fs_io = fs;
+	gfs = fs;
 }
 
 static void dbfs_op_destroy(void *userdata)
 {
-	struct dbfs **fs_io = userdata;
-	struct dbfs *fs = *fs_io;
+	struct dbfs *fs = gfs;
 
 	dbfs_close(fs);
 	dbfs_free(fs);
 
-	*fs_io = NULL;
+	gfs = NULL;
 }
 
 static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)

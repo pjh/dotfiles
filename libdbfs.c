@@ -9,6 +9,43 @@
 
 struct dbfs *gfs;
 
+static int open_db(DB_ENV *env, DB **db_out, const char *name,
+		   unsigned int page_size, unsigned int flags)
+{
+	int rc;
+	DB *db;
+
+	rc = db_create(db_out, env, 0);
+	if (rc) {
+		env->err(env, rc, "db_create");
+		return -EIO;
+	}
+
+	db = *db_out;
+
+	rc = db->open(db, NULL, name, NULL, DB_HASH,
+		      DB_AUTO_COMMIT | flags, 0666);
+	if (rc) {
+		db->err(db, rc, "db->open");
+		return -EIO;
+	}
+
+	rc = db->set_pagesize(db, page_size);
+	if (rc) {
+		db->err(db, rc, "db->set_pagesize");
+		return -EIO;
+	}
+
+	/* fix everything as little endian */
+	rc = db->set_lorder(db, 1234);
+	if (rc) {
+		db->err(db, rc, "db->set_lorder");
+		return -EIO;
+	}
+
+	return 0;
+}
+
 int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags, const char *errpfx)
 {
 	const char *db_home, *db_password;
@@ -63,37 +100,14 @@ int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags, const
 	 * Open metadata database
 	 */
 
-	rc = db_create(&fs->meta, fs->env, 0);
-	if (rc) {
-		fs->env->err(fs->env, rc, "db_create");
-		goto err_out;
-	}
-
-	rc = fs->meta->open(fs->meta, NULL, "metadata", NULL,
-			   DB_HASH, DB_AUTO_COMMIT | flags, 0666);
-	if (rc) {
-		fs->meta->err(fs->meta, rc, "fs->meta->open");
+	rc = open_db(fs->env, &fs->meta, "metadata", DBFS_PGSZ_METADATA, flags);
+	if (rc)
 		goto err_out_meta;
-	}
 
-	/* our data items are small, so use the smallest possible page
-	 * size.  This is a guess, and should be verified by looking at
-	 * overflow pages and other DB statistics.
-	 */
-	rc = fs->meta->set_pagesize(fs->meta, 512);
-	if (rc) {
-		fs->meta->err(fs->meta, rc, "fs->meta->set_pagesize");
+	rc = open_db(fs->env, &fs->data, "data", DBFS_PGSZ_DATA, flags);
+	if (rc)
 		goto err_out_meta;
-	}
 
-	/* fix everything as little endian */
-	rc = fs->meta->set_lorder(fs->meta, 1234);
-	if (rc) {
-		fs->meta->err(fs->meta, rc, "fs->meta->set_lorder");
-		goto err_out_meta;
-	}
-
-	gfs = fs;
 	return 0;
 
 err_out_meta:

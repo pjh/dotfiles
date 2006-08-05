@@ -18,6 +18,17 @@ enum {
 	DBFS_XATTR_MAX_LEN	= (1024 * 1024),
 
 	DBFS_XLIST_ALIGN	= 8,
+
+	/* our data items are small, so use the smallest possible page
+	 * size.  This is a guess, and should be verified by looking at
+	 * overflow pages and other DB statistics.
+	 */
+	DBFS_PGSZ_METADATA	= 512,
+
+	/* another guess.  must take into account small data items
+	 * as well as large ones
+	 */
+	DBFS_PGSZ_DATA		= 2048,
 };
 
 enum {
@@ -83,6 +94,7 @@ struct dbfs {
 
 	DB_ENV			*env;
 	DB			*meta;
+	DB			*data;
 
 	guint64			next_inode;
 };
