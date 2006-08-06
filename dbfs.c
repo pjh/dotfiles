@@ -281,6 +281,16 @@ static void dbfs_op_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 	free(buf);
 }
 
+static void dbfs_op_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
+			  size_t size, off_t off, struct fuse_file_info *fi)
+{
+	int rc = dbfs_write(ino, off, buf, size);
+	if (rc < 0)
+		fuse_reply_err(req, -rc);
+	else
+		fuse_reply_write(req, rc);
+}
+
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
 {
 	if ((GUINT16_FROM_LE(de->namelen) == 1) && (!memcmp(de->name, ".", 1)))
@@ -560,7 +570,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.link		= dbfs_op_link,
 	.open		= dbfs_op_open,
 	.read		= dbfs_op_read,
-	.write		= NULL,
+	.write		= dbfs_op_write,
 	.flush		= NULL,
 	.release	= NULL,
 	.fsync		= NULL,

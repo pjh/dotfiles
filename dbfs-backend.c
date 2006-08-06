@@ -797,7 +797,6 @@ out:
 	return rc < 0 ? rc : buflen;
 }
 
-#if 0
 static int dbfs_write_unique_buf(DBT *key, const void *buf, size_t buflen)
 {
 	struct dbfs_hashref ref;
@@ -827,6 +826,8 @@ static int dbfs_write_unique_buf(DBT *key, const void *buf, size_t buflen)
 
 		return -EIO;
 	}
+
+	return 0;
 }
 
 static int dbfs_write_buf(const void *buf, size_t buflen,
@@ -840,7 +841,7 @@ static int dbfs_write_buf(const void *buf, size_t buflen,
 		return -EINVAL;
 
 	memset(ext, 0, sizeof(*ext));
-	ext->len = buflen;
+	ext->len = GUINT32_TO_LE(buflen);
 
 	if (is_zero_buf(buf, buflen))
 		return 0;
@@ -917,4 +918,146 @@ static int dbfs_data_unref(dbfs_blk_id_t *id)
 	return (rc || rc2) ? -EIO : 0;
 }
 
-#endif
+static int dbfs_inode_realloc(struct dbfs_inode *ino,
+			      unsigned int new_n_extents)
+{
+	struct dbfs_raw_inode *new_raw;
+	size_t new_size = sizeof(struct dbfs_inode) + 
+		(sizeof(struct dbfs_extent) * new_n_extents);
+
+	new_raw = g_malloc0(new_size);
+	if (!new_raw)
+		return -ENOMEM;
+
+	memcpy(new_raw, ino->raw_inode, MIN(new_size, ino->raw_ino_size));
+
+	free(ino->raw_inode);
+	ino->raw_inode = new_raw;
+	ino->raw_ino_size = new_size;
+	ino->n_extents = new_n_extents;
+
+	return 0;
+}
+
+static int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size)
+{
+	guint64 old_size, diff, diff_ext;
+	unsigned int grow, i, new_n_extents, tmp;
+	int rc;
+
+	old_size = GUINT64_FROM_LE(ino->raw_inode->size);
+	grow = (old_size < new_size);
+	diff = grow ? new_size - old_size : old_size - new_size;
+
+	diff_ext = (diff / DBFS_MAX_EXT_LEN);
+	if (diff % DBFS_MAX_EXT_LEN)
+		diff_ext++;
+
+	if (grow) {
+		new_n_extents = ino->n_extents + diff_ext;
+		rc = dbfs_inode_realloc(ino, new_n_extents);
+		if (rc)
+			return rc;
+
+		for (i = ino->n_extents; i < new_n_extents; i++) {
+			g_assert(diff > 0);
+			tmp = MIN(diff, DBFS_MAX_EXT_LEN);
+			ino->raw_inode->blocks[i].len =
+				GUINT32_TO_LE(tmp);
+			diff -= tmp;
+		}
+
+		g_assert(diff == 0);
+	}
+
+	else {
+		struct dbfs_extent *ext;
+		guint32 ext_len;
+
+		new_n_extents = ino->n_extents;
+		while (new_n_extents > 0) {
+			ext = &ino->raw_inode->blocks[new_n_extents - 1];
+			ext_len = GUINT32_FROM_LE(ext->len);
+			if (ext_len > diff)
+				break;
+
+			rc = dbfs_data_unref(&ext->id);
+			if (rc)
+				return rc;
+
+			memset(ext, 0, sizeof(*ext));
+			ino->n_extents--;
+
+			new_n_extents--;
+			diff -= ext_len;
+		}
+
+		if (diff > 0) {
+			ext = &ino->raw_inode->blocks[new_n_extents - 1];
+			ext_len = GUINT32_FROM_LE(ext->len);
+			ext_len -= diff;
+			ext->len = GUINT32_TO_LE(ext_len);
+
+			g_assert(ext_len > 0);
+		}
+
+		rc = dbfs_inode_realloc(ino, new_n_extents);
+		if (rc)
+			return rc;
+	}
+
+	ino->raw_inode->size = GUINT64_TO_LE(new_size);
+	return 0;
+}
+
+int dbfs_write(guint64 ino_n, guint64 off, const void *buf, size_t buflen)
+{
+	struct dbfs_extent ext;
+	struct dbfs_inode *ino;
+	int rc;
+	guint64 i_size;
+
+	rc = dbfs_inode_read(ino_n, &ino);
+	if (rc)
+		return rc;
+
+	rc = dbfs_write_buf(buf, buflen, &ext);
+	if (rc)
+		goto out;
+
+	i_size = GUINT64_FROM_LE(ino->raw_inode->size);
+
+	if ((off != i_size) && ((off + buflen) > i_size)) {
+		rc = dbfs_inode_resize(ino, off + 1);
+		if (rc)
+			goto err_out;
+	}
+
+	i_size = GUINT64_FROM_LE(ino->raw_inode->size);
+
+	/* append */
+	if (off == i_size) {
+		unsigned int idx;
+
+		rc = dbfs_inode_resize(ino, i_size + buflen);
+		if (rc)
+			goto err_out;
+
+		idx = ino->n_extents - 1;
+
+		g_assert(is_null_id(&ino->raw_inode->blocks[idx].id));
+		memcpy(&ino->raw_inode->blocks[idx], &ext, sizeof(ext));
+
+		goto out;
+	}
+
+	/* FIXME: update data in middle of file */
+
+	goto out;
+
+err_out:
+	dbfs_data_unref(&ext.id);
+out:
+	dbfs_inode_free(ino);
+	return rc;
+}

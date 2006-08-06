@@ -110,9 +110,9 @@ struct dbfs_raw_inode {
 } __attribute__ ((packed));
 
 struct dbfs_inode {
+	enum dbfs_inode_type	type;
 	unsigned int		n_extents;
 	unsigned int		raw_ino_size;
-	enum dbfs_inode_type	type;
 	struct dbfs_raw_inode	*raw_inode;
 };
 
@@ -155,6 +155,7 @@ extern int dbfs_xattr_set(guint64 ino_n, const char *name,
 extern int dbfs_xattr_remove(guint64, const char *, gboolean);
 extern int dbfs_xattr_list(guint64 ino, void **buf_out, size_t *buflen_out);
 extern int dbfs_read(guint64, guint64, size_t, void **);
+extern int dbfs_write(guint64, guint64, const void *, size_t);
 
 /* libdbfs.c */
 extern int dbfs_open(struct dbfs *, unsigned int, unsigned int, const char *);
