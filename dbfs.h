@@ -156,6 +156,7 @@ extern int dbfs_xattr_remove(guint64, const char *, gboolean);
 extern int dbfs_xattr_list(guint64 ino, void **buf_out, size_t *buflen_out);
 extern int dbfs_read(guint64, guint64, size_t, void **);
 extern int dbfs_write(guint64, guint64, const void *, size_t);
+extern int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size);
 
 /* libdbfs.c */
 extern int dbfs_open(struct dbfs *, unsigned int, unsigned int, const char *);

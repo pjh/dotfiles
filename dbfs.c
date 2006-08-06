@@ -41,6 +41,24 @@ static void dbfs_fill_ent(const struct dbfs_inode *ino,
 	ent->entry_timeout = 2.0;
 }
 
+static void dbfs_fill_attr(const struct dbfs_inode *ino, struct stat *st)
+{
+	memset(st, 0, sizeof(*st));
+	st->st_dev	= 1;
+	st->st_ino	= GUINT64_FROM_LE(ino->raw_inode->ino);
+	st->st_mode	= GUINT32_FROM_LE(ino->raw_inode->mode);
+	st->st_nlink	= GUINT32_FROM_LE(ino->raw_inode->nlink);
+	st->st_uid	= GUINT32_FROM_LE(ino->raw_inode->uid);
+	st->st_gid	= GUINT32_FROM_LE(ino->raw_inode->gid);
+	st->st_rdev	= GUINT64_FROM_LE(ino->raw_inode->rdev);
+	st->st_size	= GUINT64_FROM_LE(ino->raw_inode->size);
+	st->st_blksize	= 512;
+	st->st_blocks	= GUINT64_FROM_LE(ino->raw_inode->size) / 512ULL;
+	st->st_atime	= GUINT64_FROM_LE(ino->raw_inode->atime);
+	st->st_mtime	= GUINT64_FROM_LE(ino->raw_inode->mtime);
+	st->st_ctime	= GUINT64_FROM_LE(ino->raw_inode->ctime);
+}
+
 static void dbfs_reply_ino(fuse_req_t req, struct dbfs_inode *ino)
 {
 	struct fuse_entry_param ent;
@@ -102,7 +120,7 @@ static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 			     struct fuse_file_info *fi)
 {
-	struct dbfs_inode *ino = NULL;
+	struct dbfs_inode *ino;
 	struct stat st;
 	int rc;
 
@@ -116,25 +134,70 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	/* fill in stat buf, taking care to convert from
 	 * little endian to native endian
 	 */
-	memset(&st, 0, sizeof(st));
-	st.st_dev	= 1;
-	st.st_ino	= ino_n;
-	st.st_mode	= GUINT32_FROM_LE(ino->raw_inode->mode);
-	st.st_nlink	= GUINT32_FROM_LE(ino->raw_inode->nlink);
-	st.st_uid	= GUINT32_FROM_LE(ino->raw_inode->uid);
-	st.st_gid	= GUINT32_FROM_LE(ino->raw_inode->gid);
-	st.st_rdev	= GUINT64_FROM_LE(ino->raw_inode->rdev);
-	st.st_size	= GUINT64_FROM_LE(ino->raw_inode->size);
-	st.st_blksize	= 512;
-	st.st_blocks	= GUINT64_FROM_LE(ino->raw_inode->size) / 512ULL;
-	st.st_atime	= GUINT64_FROM_LE(ino->raw_inode->atime);
-	st.st_mtime	= GUINT64_FROM_LE(ino->raw_inode->mtime);
-	st.st_ctime	= GUINT64_FROM_LE(ino->raw_inode->ctime);
+	dbfs_fill_attr(ino, &st);
 
 	/* send result back to FUSE */
 	fuse_reply_attr(req, &st, 2.0);
 
 	dbfs_inode_free(ino);
+}
+
+static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
+			    struct stat *attr, int to_set,
+			    struct fuse_file_info *fi)
+{
+	struct dbfs_inode *ino;
+	struct stat st;
+	int rc, dirty = 0;
+
+	/* read inode from database */
+	rc = dbfs_inode_read(ino_n, &ino);
+	if (rc)
+		goto err_out;
+
+	if (to_set & FUSE_SET_ATTR_MODE) {
+		ino->raw_inode->mode = GUINT32_TO_LE(attr->st_mode);
+		dirty = 1;
+	}
+	if (to_set & FUSE_SET_ATTR_UID) {
+		ino->raw_inode->uid = GUINT32_TO_LE(attr->st_uid);
+		dirty = 1;
+	}
+	if (to_set & FUSE_SET_ATTR_GID) {
+		ino->raw_inode->gid = GUINT32_TO_LE(attr->st_gid);
+		dirty = 1;
+	}
+	if (to_set & FUSE_SET_ATTR_SIZE) {
+		rc = dbfs_inode_resize(ino, attr->st_size);
+		if (rc)
+			goto err_out_free;
+		ino->raw_inode->size = GUINT64_TO_LE(attr->st_size);
+		dirty = 1;
+	}
+	if (to_set & FUSE_SET_ATTR_ATIME) {
+		ino->raw_inode->atime = GUINT64_TO_LE(attr->st_atime);
+		dirty = 1;
+	}
+	if (to_set & FUSE_SET_ATTR_MTIME) {
+		ino->raw_inode->mtime = GUINT64_TO_LE(attr->st_mtime);
+		dirty = 1;
+	}
+
+	if (dirty) {
+		rc = dbfs_inode_write(ino);
+		if (rc)
+			goto err_out_free;
+	}
+
+	dbfs_fill_attr(ino, &st);
+	dbfs_inode_free(ino);
+	fuse_reply_attr(req, &st, 2.0);
+	return;
+
+err_out_free:
+	dbfs_inode_free(ino);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
@@ -559,7 +622,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.lookup		= dbfs_op_lookup,
 	.forget		= NULL,
 	.getattr	= dbfs_op_getattr,
-	.setattr	= NULL,
+	.setattr	= dbfs_op_setattr,
 	.readlink	= dbfs_op_readlink,
 	.mknod		= dbfs_op_mknod,
 	.mkdir		= dbfs_op_mkdir,

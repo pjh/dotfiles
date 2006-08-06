@@ -939,7 +939,7 @@ static int dbfs_inode_realloc(struct dbfs_inode *ino,
 	return 0;
 }
 
-static int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size)
+int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size)
 {
 	guint64 old_size, diff, diff_ext;
 	unsigned int grow, i, new_n_extents, tmp;
