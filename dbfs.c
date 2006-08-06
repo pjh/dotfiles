@@ -529,6 +529,26 @@ static void dbfs_op_fsyncdir (fuse_req_t req, fuse_ino_t ino,
 	fuse_reply_err(req, 0);
 }
 
+static void dbfs_op_statfs(fuse_req_t req)
+{
+	struct statvfs f;
+
+	memset(&f, 0, sizeof(f));
+	f.f_bsize = 512;
+	f.f_frsize = 512;
+	f.f_blocks = 0xffffffffffff;
+	f.f_bfree = 0xfffffff;
+	f.f_bavail = 0xfffffff;
+	f.f_files = 0xfffffff;
+	f.f_ffree = 0xffffff;
+	f.f_favail = 0xffffff;
+	f.f_fsid = 0xdeadbeef;
+	f.f_flag = 0;
+	f.f_namemax = DBFS_FILENAME_MAX;
+
+	fuse_reply_statfs(req, &f);
+}
+
 static void dbfs_op_setxattr(fuse_req_t req, fuse_ino_t ino,
 			     const char *name, const char *value,
 			     size_t size, int flags)
@@ -655,7 +675,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.readdir	= dbfs_op_readdir,
 	.releasedir	= dbfs_op_releasedir,
 	.fsyncdir	= dbfs_op_fsyncdir,
-	.statfs		= NULL,
+	.statfs		= dbfs_op_statfs,
 	.setxattr	= dbfs_op_setxattr,
 	.getxattr	= dbfs_op_getxattr,
 	.listxattr	= dbfs_op_listxattr,

@@ -366,6 +366,8 @@ static int dbfs_name_validate(const char *name)
 		return -EINVAL;
 	if (!strcmp(name, ".."))
 		return -EINVAL;
+	if (strlen(name) > DBFS_FILENAME_MAX)
+		return -EINVAL;
 	return 0;
 }
 

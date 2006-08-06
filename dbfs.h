@@ -32,6 +32,8 @@ enum {
 
 	DBFS_DIRENT_ALIGN	= 8,	/* struct dbfs_dirent alignment */
 
+	DBFS_FILENAME_MAX	= 256,	/* max filename component size */
+
 	DBFS_XATTR_NAME_LEN	= 256,	/* extended attr limits */
 	DBFS_XATTR_MAX_LEN	= (1024 * 1024),
 
