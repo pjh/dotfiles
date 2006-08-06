@@ -71,7 +71,7 @@ guint64         ino:		inode number of referenced inode
 char            name[0]:	UTF8 final filename component (namelen bytes)
 0-7 bytes			alignment padding
 
-The array of struct dbfs_direct is terminated by a final dbfs_dirent
+The array of struct dbfs_dirent is terminated by a final dbfs_dirent
 containing a zero-length name (namelen==0).
 
 
