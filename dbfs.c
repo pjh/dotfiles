@@ -24,6 +24,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/vfs.h>
 #include <glib.h>
 #include <db.h>
 #include "dbfs.h"
@@ -529,16 +530,23 @@ static void dbfs_op_fsyncdir (fuse_req_t req, fuse_ino_t ino,
 	fuse_reply_err(req, 0);
 }
 
+#define COPY(x) f.f_##x = st.f_##x
 static void dbfs_op_statfs(fuse_req_t req)
 {
 	struct statvfs f;
+	struct statfs st;
+	
+	if (statfs(gfs->home, &st) < 0) {
+		fuse_reply_err(req, errno);
+		return;
+	}
 
 	memset(&f, 0, sizeof(f));
-	f.f_bsize = 512;
+	COPY(bsize);
 	f.f_frsize = 512;
-	f.f_blocks = 0xffffffffffff;
-	f.f_bfree = 0xfffffff;
-	f.f_bavail = 0xfffffff;
+	COPY(blocks);
+	COPY(bfree);
+	COPY(bavail);
 	f.f_files = 0xfffffff;
 	f.f_ffree = 0xffffff;
 	f.f_favail = 0xffffff;
@@ -548,6 +556,7 @@ static void dbfs_op_statfs(fuse_req_t req)
 
 	fuse_reply_statfs(req, &f);
 }
+#undef COPY
 
 static void dbfs_op_setxattr(fuse_req_t req, fuse_ino_t ino,
 			     const char *name, const char *value,
