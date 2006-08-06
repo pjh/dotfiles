@@ -424,6 +424,13 @@ err_out:
 	fuse_reply_err(req, -rc);
 }
 
+static void dbfs_op_fsync (fuse_req_t req, fuse_ino_t ino,
+			   int datasync, struct fuse_file_info *fi)
+{
+	/* DB should have already sync'd our data for us */
+	fuse_reply_err(req, 0);
+}
+
 static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 			    struct fuse_file_info *fi)
 {
@@ -442,15 +449,6 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 
 	/* send reply */
 	fuse_reply_open(req, fi);
-}
-
-static void dbfs_op_releasedir(fuse_req_t req, fuse_ino_t ino,
-			       struct fuse_file_info *fi)
-{
-	void *p = (void *) (unsigned long) fi->fh;
-
-	/* release directory contents */
-	free(p);
 }
 
 struct dirbuf {
@@ -513,6 +511,22 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	/* send reply */
 	reply_buf_limited(req, b.p, b.size, off, size);
 	free(b.p);
+}
+
+static void dbfs_op_releasedir(fuse_req_t req, fuse_ino_t ino,
+			       struct fuse_file_info *fi)
+{
+	void *p = (void *) (unsigned long) fi->fh;
+
+	/* release directory contents */
+	free(p);
+}
+
+static void dbfs_op_fsyncdir (fuse_req_t req, fuse_ino_t ino,
+			      int datasync, struct fuse_file_info *fi)
+{
+	/* DB should have already sync'd our data for us */
+	fuse_reply_err(req, 0);
 }
 
 static void dbfs_op_setxattr(fuse_req_t req, fuse_ino_t ino,
@@ -636,11 +650,11 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.write		= dbfs_op_write,
 	.flush		= NULL,
 	.release	= NULL,
-	.fsync		= NULL,
+	.fsync		= dbfs_op_fsync,
 	.opendir	= dbfs_op_opendir,
 	.readdir	= dbfs_op_readdir,
 	.releasedir	= dbfs_op_releasedir,
-	.fsyncdir	= NULL,
+	.fsyncdir	= dbfs_op_fsyncdir,
 	.statfs		= NULL,
 	.setxattr	= dbfs_op_setxattr,
 	.getxattr	= dbfs_op_getxattr,
