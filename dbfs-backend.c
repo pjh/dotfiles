@@ -601,6 +601,30 @@ err_out:
 	return rc;
 }
 
+int dbfs_rename(guint64 parent, const char *name,
+		guint64 new_parent, const char *new_name)
+{
+	int rc;
+	guint64 ino_n;
+
+	if ((parent == new_parent) && (!strcmp(name, new_name)))
+		return -EINVAL;
+
+	rc = dbfs_dir_lookup(parent, name, &ino_n);
+	if (rc)
+		return rc;
+
+	rc = dbfs_dirent_del(parent, name);
+	if (rc)
+		return rc;
+
+	rc = dbfs_unlink(new_parent, new_name, 0);
+	if (rc && (rc != -ENOENT))
+		return rc;
+
+	return dbfs_dir_append(new_parent, ino_n, new_name);
+}
+
 static void ext_list_free(GList *ext_list)
 {
 	GList *tmp;

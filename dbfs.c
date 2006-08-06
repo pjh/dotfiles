@@ -19,6 +19,8 @@
 
 #define FUSE_USE_VERSION 25
 
+#define _BSD_SOURCE
+
 #include <fuse_lowlevel.h>
 #include <stdlib.h>
 #include <string.h>
@@ -271,6 +273,12 @@ static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 		return;
 	}
 
+	/* these have separate inode-creation hooks */
+	if (S_ISDIR(mode) || S_ISLNK(mode)) {
+		fuse_reply_err(req, EINVAL);
+		return;
+	}
+
 	rc = dbfs_mknod(parent, name, mode, rdev, &ino);
 	if (rc) {
 		fuse_reply_err(req, -rc);
@@ -283,10 +291,17 @@ static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 			  mode_t mode)
 {
-	mode &= (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID | S_ISVTX);
+	struct dbfs_inode *ino;
+	int rc;
+
+	mode &= ALLPERMS;
 	mode |= S_IFDIR;
 
-	return dbfs_op_mknod(req, parent, name, mode, 0);
+	rc = dbfs_mknod(parent, name, mode, 0, &ino);
+	if (rc)
+		fuse_reply_err(req, -rc);
+	else
+		dbfs_reply_ino(req, ino);
 }
 
 static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -422,6 +437,14 @@ err_out_mknod:
 	dbfs_inode_del(ino);
 	dbfs_inode_free(ino);
 err_out:
+	fuse_reply_err(req, -rc);
+}
+
+static void dbfs_op_rename(fuse_req_t req, fuse_ino_t parent,
+			   const char *name, fuse_ino_t newparent,
+			   const char *newname)
+{
+	int rc = dbfs_rename(parent, name, newparent, newname);
 	fuse_reply_err(req, -rc);
 }
 
@@ -672,7 +695,7 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 	.unlink		= dbfs_op_unlink,
 	.rmdir		= dbfs_op_rmdir,
 	.symlink	= dbfs_op_symlink,
-	.rename		= NULL,
+	.rename		= dbfs_op_rename,
 	.link		= dbfs_op_link,
 	.open		= dbfs_op_open,
 	.read		= dbfs_op_read,
