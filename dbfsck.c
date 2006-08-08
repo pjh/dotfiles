@@ -29,7 +29,10 @@ int main (int argc, char *argv[])
 
 	gfs = fs;
 
-	rc = dbfs_open(fs, DB_RECOVER_FATAL, DB_CREATE, "dbfsck");
+	if (!fs)
+		return 1;
+
+	rc = dbfs_open(fs, DB_RECOVER_FATAL | DB_CREATE, DB_CREATE, "dbfsck");
 	if (rc) {
 		perror("dbfsck");
 		return 1;

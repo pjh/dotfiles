@@ -80,7 +80,7 @@ static void dbfs_op_init(void *userdata)
 
 	fs = dbfs_new();
 
-	rc = dbfs_open(fs, DB_RECOVER | DB_CREATE, 0, "dbfs");
+	rc = dbfs_open(fs, DB_RECOVER | DB_CREATE, DB_CREATE, "dbfs");
 	if (rc)
 		abort();			/* TODO: improve */
 

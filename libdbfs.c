@@ -41,13 +41,6 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 
 	db = *db_out;
 
-	rc = db->open(db, NULL, name, NULL, DB_HASH,
-		      DB_AUTO_COMMIT | flags, 0666);
-	if (rc) {
-		db->err(db, rc, "db->open");
-		return -EIO;
-	}
-
 	rc = db->set_pagesize(db, page_size);
 	if (rc) {
 		db->err(db, rc, "db->set_pagesize");
@@ -58,6 +51,13 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 	rc = db->set_lorder(db, 1234);
 	if (rc) {
 		db->err(db, rc, "db->set_lorder");
+		return -EIO;
+	}
+
+	rc = db->open(db, NULL, name, NULL, DB_HASH,
+		      DB_AUTO_COMMIT | flags, 0666);
+	if (rc) {
+		db->err(db, rc, "db->open");
 		return -EIO;
 	}
 
@@ -75,10 +75,7 @@ int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
 	 */
 
 	db_home = fs->home;
-	if (!db_home) {
-		fprintf(stderr, "DB_HOME not set\n");
-		return -EINVAL;
-	}
+	g_assert(db_home != NULL);
 
 	/* this isn't a very secure way to handle passwords */
 	db_password = fs->passwd;
@@ -109,7 +106,7 @@ int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
 	/* init DB transactional environment, stored in directory db_home */
 	rc = fs->env->open(fs->env, db_home,
 			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
-			  DB_INIT_TXN | env_flags | flags, 0666);
+			  DB_INIT_TXN | env_flags, 0666);
 	if (rc) {
 		fs->env->err(fs->env, rc, "fs->env->open");
 		goto err_out;
@@ -163,8 +160,10 @@ struct dbfs *dbfs_new(void)
 	fs->next_inode = 2ULL;
 
 	fs->home = getenv("DB_HOME");
-	if (!fs->home)
+	if (!fs->home) {
+		fprintf(stderr, "DB_HOME not set, aborting\n");
 		goto err_out;
+	}
 
 	passwd = getenv("DB_PASSWORD");
 	if (passwd) {

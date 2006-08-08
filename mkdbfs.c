@@ -71,10 +71,13 @@ int main (int argc, char *argv[])
 
 	gfs = fs;
 
-	int rc = dbfs_open(fs, 0, DB_CREATE | DB_TRUNCATE, "mkdbfs");
+	if (!fs)
+		return 1;
+
+	int rc = dbfs_open(fs, DB_CREATE, DB_CREATE, "mkdbfs");
 	if (rc) {
 		perror("mkdbfs");
-		exit(1);
+		return 1;
 	}
 
 	make_root_dir();
