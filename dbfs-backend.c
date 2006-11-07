@@ -42,6 +42,8 @@ struct dbfs_dirscan_info {
 	void			*end_ent;
 };
 
+static int dbfs_data_unref(DB_TXN *txn, dbfs_blk_id_t *id);
+
 int dbmeta_del(DB_TXN *txn, const char *key_str)
 {
 	DBT key;
@@ -79,33 +81,38 @@ static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
 	return 0;
 }
 
+static int dbfs_inode_del_data(DB_TXN *txn, struct dbfs_inode *ino)
+{
+	int i, rc = 0;
+
+	for (i = 0; i < ino->n_extents; i++) {
+		rc = dbfs_data_unref(txn, &ino->raw_inode->blocks[i].id);
+		if (rc)
+			return rc;
+	}
+
+	return 0;
+}
+
 int dbfs_inode_del(DB_TXN *txn, struct dbfs_inode *ino)
 {
 	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
 	char key[32];
-	int rc, rrc;
-
-	sprintf(key, "/inode/%Lu", (unsigned long long) ino_n);
-
-	rrc = dbmeta_del(txn, key);
+	int rc = 0;
 
 	switch (ino->type) {
 	case IT_REG:
-		/* FIXME! */
+		rc = dbfs_inode_del_data(txn, ino);
 		break;
 
 	case IT_DIR:
 		sprintf(key, "/dir/%Lu", (unsigned long long) ino_n);
 		rc = dbmeta_del(txn, key);
-		if (rc && !rrc)
-			rrc = rc;
 		break;
 
 	case IT_SYMLINK:
 		sprintf(key, "/symlink/%Lu", (unsigned long long) ino_n);
 		rc = dbmeta_del(txn, key);
-		if (rc && !rrc)
-			rrc = rc;
 		break;
 
 	case IT_DEV:
@@ -115,7 +122,15 @@ int dbfs_inode_del(DB_TXN *txn, struct dbfs_inode *ino)
 		break;
 	}
 
-	return rrc;
+	if (rc)
+		goto out;
+
+	sprintf(key, "/inode/%Lu", (unsigned long long) ino_n);
+
+	rc = dbmeta_del(txn, key);
+
+out:
+	return rc;
 }
 
 int dbfs_inode_read(DB_TXN *txn, guint64 ino_n, struct dbfs_inode **ino_out)
