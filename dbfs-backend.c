@@ -38,8 +38,7 @@ struct dbfs_lookup_info {
 struct dbfs_dirscan_info {
 	const char		*name;
 	size_t			namelen;
-	void			*start_ent;
-	void			*end_ent;
+	void			*ent;
 };
 
 static int dbfs_data_unref(DB_TXN *txn, dbfs_blk_id_t *id);
@@ -279,13 +278,9 @@ static int dbfs_dir_scan1(struct dbfs_dirent *de, void *userdata)
 {
 	struct dbfs_dirscan_info *di = userdata;
 
-	if (!di->start_ent) {
-		if ((GUINT16_FROM_LE(de->namelen) == di->namelen) &&
-		    (!memcmp(de->name, di->name, di->namelen)))
-			di->start_ent = de;
-	}
-	else if (!di->end_ent) {
-		di->end_ent = de;
+	if ((GUINT16_FROM_LE(de->namelen) == di->namelen) &&
+	    (!memcmp(de->name, di->name, di->namelen))) {
+		di->ent = de;
 		return 1;
 	}
 
@@ -312,15 +307,15 @@ int dbfs_dir_lookup(DB_TXN *txn, guint64 parent, const char *name, guint64 *ino)
 
 	/* query pointer to start of matching dirent */
 	rc = dbfs_dir_foreach(val.data, dbfs_dir_scan1, &di);
-	if (!rc || !di.start_ent) {
-		rc = -ENOENT;
+	if (rc != 1) {
+		if (rc == 0)
+			rc = -ENOENT;
 		goto out;
 	}
-	if (rc != 1)
-		goto out;
+	rc = 0;
 
 	/* if match found, return inode number */
-	de = di.start_ent;
+	de = di.ent;
 	*ino = de->ino;
 
 out:
@@ -333,6 +328,8 @@ static int dbfs_dirent_del(DB_TXN *txn, guint64 parent, const char *name)
 	struct dbfs_dirscan_info ui;
 	DBT dir_val;
 	int rc, del_len, tail_len;
+	void *end_ent;
+	struct dbfs_dirent *de;
 
 	rc = dbfs_dir_read(txn, parent, &dir_val);
 	if (rc)
@@ -346,13 +343,18 @@ static int dbfs_dirent_del(DB_TXN *txn, guint64 parent, const char *name)
 	rc = dbfs_dir_foreach(dir_val.data, dbfs_dir_scan1, &ui);
 	if (rc != 1) {
 		free(dir_val.data);
-		return -ENOENT;
+		if (rc == 0)
+			rc = -ENOENT;
+		return rc;
 	}
 
-	del_len = ui.end_ent - ui.start_ent;
-	tail_len = (dir_val.data + dir_val.size) - ui.end_ent;
+	de = ui.ent;
+	end_ent = ui.ent + dbfs_dirent_next(GUINT16_FROM_LE(de->namelen));
 
-	memmove(ui.start_ent, ui.end_ent, tail_len);
+	del_len = end_ent - ui.ent;
+	tail_len = (dir_val.data + dir_val.size) - end_ent;
+
+	memmove(ui.ent, end_ent, tail_len);
 	dir_val.size -= del_len;
 
 	rc = dbfs_dir_write(txn, parent, &dir_val);
@@ -366,7 +368,7 @@ static int dbfs_dir_find_last(struct dbfs_dirent *de, void *userdata)
 {
 	struct dbfs_dirscan_info *di = userdata;
 
-	di->end_ent = de;
+	di->ent = de;
 
 	return 0;
 }
@@ -410,8 +412,8 @@ static int dbfs_dir_append(DB_TXN *txn, guint64 parent, guint64 ino_n, const cha
 
 	/* scan for name in directory, abort if found */
 	rc = dbfs_dir_foreach(val.data, dbfs_dir_scan1, &di);
-	if (rc != -ENOENT) {
-		if (rc == 0)
+	if (rc != 0) {
+		if (rc > 0)
 			rc = -EEXIST;
 		goto out;
 	}
@@ -422,7 +424,7 @@ static int dbfs_dir_append(DB_TXN *txn, guint64 parent, guint64 ino_n, const cha
 		goto out;
 
 	/* adjust pointer 'p' to point to terminator entry */
-	de = p = di.end_ent;
+	de = p = di.ent;
 	namelen = GUINT16_FROM_LE(de->namelen);
 	p += dbfs_dirent_next(namelen);
 
