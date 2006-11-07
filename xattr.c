@@ -24,7 +24,7 @@
 #include <db.h>
 #include "dbfs.h"
 
-static int dbfs_xattr_list_read(DBT *key, DBT *val, char *keystr, guint64 ino)
+static int dbfs_xattr_list_read(DB_TXN *txn, DBT *key, DBT *val, char *keystr, guint64 ino)
 {
 	snprintf(keystr, 32, "/xattr/%Lu", (unsigned long long) ino);
 
@@ -35,10 +35,10 @@ static int dbfs_xattr_list_read(DBT *key, DBT *val, char *keystr, guint64 ino)
 	memset(val, 0, sizeof(*val));
 	val->flags = DB_DBT_MALLOC;
 
-	return gfs->meta->get(gfs->meta, NULL, key, val, 0);
+	return gfs->meta->get(gfs->meta, txn, key, val, 0);
 }
 
-static int dbfs_xattr_list_add(guint64 ino, const char *name)
+static int dbfs_xattr_list_add(DB_TXN *txn, guint64 ino, const char *name)
 {
 	struct dbfs_xlist *ent;
 	char keystr[32];
@@ -48,7 +48,7 @@ static int dbfs_xattr_list_add(guint64 ino, const char *name)
 	int rc;
 
 	/* get list from db */
-	rc = dbfs_xattr_list_read(&key, &val, keystr, ino);
+	rc = dbfs_xattr_list_read(txn, &key, &val, keystr, ino);
 	if (rc && (rc != DB_NOTFOUND))
 		return -EIO;
 
@@ -89,14 +89,14 @@ static int dbfs_xattr_list_add(guint64 ino, const char *name)
 	memcpy(ent->name, name, name_len);
 
 	/* store new list in db */
-	rc = gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+	rc = gfs->meta->put(gfs->meta, txn, &key, &val, 0) ? -EIO : 0;
 
 out:
 	free(val.data);
 	return rc;
 }
 
-static int dbfs_xattr_list_del(guint64 ino, const char *name)
+static int dbfs_xattr_list_del(DB_TXN *txn, guint64 ino, const char *name)
 {
 	size_t name_len = strlen(name);
 	struct dbfs_xlist *ent;
@@ -109,7 +109,7 @@ static int dbfs_xattr_list_del(guint64 ino, const char *name)
 	unsigned int entries = 0;
 
 	/* get list from db */
-	rc = dbfs_xattr_list_read(&key, &val, keystr, ino);
+	rc = dbfs_xattr_list_read(txn, &key, &val, keystr, ino);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
 	if (rc)
@@ -146,19 +146,19 @@ static int dbfs_xattr_list_del(guint64 ino, const char *name)
 		val.size -= ssize;
 
 		/* store new list in db */
-		rc = gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+		rc = gfs->meta->put(gfs->meta, txn, &key, &val, 0) ? -EIO : 0;
 	}
 
 	/* otherwise, delete db entry */
 	else
-		rc = dbmeta_del(keystr);
+		rc = dbmeta_del(txn, keystr);
 
 out:
 	free(val.data);
 	return rc;
 }
 
-int dbfs_xattr_list(guint64 ino, void **buf_out, size_t *buflen_out)
+int dbfs_xattr_list(DB_TXN *txn, guint64 ino, void **buf_out, size_t *buflen_out)
 {
 	struct dbfs_xlist *ent;
 	char keystr[32];
@@ -173,7 +173,7 @@ int dbfs_xattr_list(guint64 ino, void **buf_out, size_t *buflen_out)
 	*buflen_out = 0;
 
 	/* get list from db */
-	rc = dbfs_xattr_list_read(&key, &val, keystr, ino);
+	rc = dbfs_xattr_list_read(txn, &key, &val, keystr, ino);
 	if (rc == DB_NOTFOUND)
 		return 0;
 	if (rc)
@@ -219,7 +219,7 @@ out:
 	return rc;
 }
 
-static int dbfs_xattr_read(guint64 ino, const char *name, DBT *val)
+static int dbfs_xattr_read(DB_TXN *txn, guint64 ino, const char *name, DBT *val)
 {
 	char key_str[DBFS_XATTR_NAME_LEN + 32];
 	DBT key;
@@ -235,13 +235,13 @@ static int dbfs_xattr_read(guint64 ino, const char *name, DBT *val)
 	memset(val, 0, sizeof(*val));
 	val->flags = DB_DBT_MALLOC;
 
-	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
+	rc = gfs->meta->get(gfs->meta, txn, &key, val, 0);
 	if (rc == DB_NOTFOUND)
 		return -EINVAL;
 	return rc ? -EIO : 0;
 }
 
-static int dbfs_xattr_write(guint64 ino, const char *name,
+static int dbfs_xattr_write(DB_TXN *txn, guint64 ino, const char *name,
 			    const void *buf, size_t buflen)
 {
 	char key_str[DBFS_XATTR_NAME_LEN + 32];
@@ -258,16 +258,16 @@ static int dbfs_xattr_write(guint64 ino, const char *name,
 	val.data = (void *) buf;
 	val.size = buflen;
 
-	return gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+	return gfs->meta->put(gfs->meta, txn, &key, &val, 0) ? -EIO : 0;
 }
 
-int dbfs_xattr_get(guint64 ino_n, const char *name,
+int dbfs_xattr_get(DB_TXN *txn, guint64 ino_n, const char *name,
 		   void **buf_out, size_t *buflen_out)
 {
 	int rc;
 	DBT val;
 
-	rc = dbfs_xattr_read(ino_n, name, &val);
+	rc = dbfs_xattr_read(txn, ino_n, name, &val);
 	if (rc)
 		return rc;
 	
@@ -277,8 +277,8 @@ int dbfs_xattr_get(guint64 ino_n, const char *name,
 	return 0;
 }
 
-int dbfs_xattr_set(guint64 ino_n, const char *name, const void *buf,
-		   size_t buflen, int flags)
+int dbfs_xattr_set(DB_TXN *txn, guint64 ino_n, const char *name,
+		   const void *buf, size_t buflen, int flags)
 {
 	void *current = NULL;
 	size_t current_len = 0;
@@ -290,7 +290,7 @@ int dbfs_xattr_set(guint64 ino_n, const char *name, const void *buf,
 	    (buflen > DBFS_XATTR_MAX_LEN))
 		return -EINVAL;
 
-	rc = dbfs_xattr_get(ino_n, name, &current, &current_len);
+	rc = dbfs_xattr_get(txn, ino_n, name, &current, &current_len);
 	if (rc && (rc != -EINVAL))
 		return rc;
 
@@ -302,20 +302,19 @@ int dbfs_xattr_set(guint64 ino_n, const char *name, const void *buf,
 	if (!exists && (flags & XATTR_REPLACE))
 		return -ENOATTR;
 
-	rc = dbfs_xattr_write(ino_n, name, buf, buflen);
+	rc = dbfs_xattr_write(txn, ino_n, name, buf, buflen);
 	if (rc)
 		return rc;
 
-	rc = dbfs_xattr_list_add(ino_n, name);
-	if (rc) {
-		dbfs_xattr_remove(ino_n, name, FALSE);
+	rc = dbfs_xattr_list_add(txn, ino_n, name);
+	if (rc)
 		return rc;
-	}
 
 	return 0;
 }
 
-int dbfs_xattr_remove(guint64 ino_n, const char *name, gboolean update_list)
+int dbfs_xattr_remove(DB_TXN *txn, guint64 ino_n, const char *name,
+		      gboolean update_list)
 {
 	char key_str[DBFS_XATTR_NAME_LEN + 32];
 
@@ -323,11 +322,11 @@ int dbfs_xattr_remove(guint64 ino_n, const char *name, gboolean update_list)
 		 "/xattr/%Lu/%s", (unsigned long long) ino_n, name);
 
 	if (update_list) {
-		int rc = dbfs_xattr_list_del(ino_n, name);
+		int rc = dbfs_xattr_list_del(txn, ino_n, name);
 		if (rc)
 			return rc;
 	}
 
-	return dbmeta_del(key_str);
+	return dbmeta_del(txn, key_str);
 }
 

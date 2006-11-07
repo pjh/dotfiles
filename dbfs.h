@@ -134,32 +134,32 @@ struct dbfs {
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 
 /* dbfs-backend.c */
-extern int dbmeta_del(const char *key_str);
-extern int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out);
-extern int dbfs_dir_read(guint64 ino, DBT *val);
-extern int dbfs_symlink_read(guint64 ino, DBT *val);
+extern int dbmeta_del(DB_TXN *txn, const char *key_str);
+extern int dbfs_inode_read(DB_TXN *txn, guint64 ino_n, struct dbfs_inode **ino_out);
+extern int dbfs_dir_read(DB_TXN *txn, guint64 ino, DBT *val);
+extern int dbfs_symlink_read(DB_TXN *txn, guint64 ino, DBT *val);
 extern int dbfs_dir_foreach(void *dir, dbfs_dir_actor_t func, void *userdata);
-extern int dbfs_dir_lookup(guint64 parent, const char *name, guint64 *ino);
-extern int dbfs_link(struct dbfs_inode *ino, guint64 ino_n, guint64 parent, const char *name);
-extern int dbfs_unlink(guint64 parent, const char *name, unsigned long flags);
+extern int dbfs_dir_lookup(DB_TXN *txn, guint64 parent, const char *name, guint64 *ino);
+extern int dbfs_link(DB_TXN *txn, struct dbfs_inode *ino, guint64 ino_n, guint64 parent, const char *name);
+extern int dbfs_unlink(DB_TXN *txn, guint64 parent, const char *name, unsigned long flags);
 extern void dbfs_init(void *userdata);
 extern void dbfs_exit(void *userdata);
-extern int dbfs_mknod(guint64 parent, const char *name,
+extern int dbfs_mknod(DB_TXN *txn, guint64 parent, const char *name,
 		      guint32 mode, guint64 rdev,
 		      struct dbfs_inode **ino);
-extern int dbfs_symlink_write(guint64 ino, const char *link);
-extern int dbfs_inode_del(struct dbfs_inode *ino);
-extern int dbfs_xattr_get(guint64 ino_n, const char *name,
+extern int dbfs_symlink_write(DB_TXN *txn, guint64 ino, const char *link);
+extern int dbfs_inode_del(DB_TXN *txn, struct dbfs_inode *ino);
+extern int dbfs_xattr_get(DB_TXN *TXN, guint64 ino_n, const char *name,
 			  void **buf_out, size_t *buflen_out);
-extern int dbfs_xattr_set(guint64 ino_n, const char *name,
+extern int dbfs_xattr_set(DB_TXN *TXN, guint64 ino_n, const char *name,
 			  const void *buf, size_t buflen,
 			  int flags);
-extern int dbfs_xattr_remove(guint64, const char *, gboolean);
-extern int dbfs_xattr_list(guint64 ino, void **buf_out, size_t *buflen_out);
-extern int dbfs_read(guint64, guint64, size_t, void **);
-extern int dbfs_write(guint64, guint64, const void *, size_t);
-extern int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size);
-extern int dbfs_rename(guint64, const char *, guint64, const char *);
+extern int dbfs_xattr_remove(DB_TXN *TXN, guint64, const char *, gboolean);
+extern int dbfs_xattr_list(DB_TXN *TXN, guint64 ino, void **buf_out, size_t *buflen_out);
+extern int dbfs_read(DB_TXN *, guint64, guint64, size_t, void **);
+extern int dbfs_write(DB_TXN *, guint64, guint64, const void *, size_t);
+extern int dbfs_inode_resize(DB_TXN *txn, struct dbfs_inode *ino, guint64 new_size);
+extern int dbfs_rename(DB_TXN *txn, guint64, const char *, guint64, const char *);
 
 /* libdbfs.c */
 extern int dbfs_open(struct dbfs *, unsigned int, unsigned int, const char *);
@@ -167,9 +167,9 @@ extern void dbfs_close(struct dbfs *fs);
 extern struct dbfs *dbfs_new(void);
 extern void dbfs_free(struct dbfs *fs);
 extern struct dbfs *gfs;
-extern int dbfs_inode_write(struct dbfs_inode *ino);
-extern int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino);
-extern int dbfs_dir_write(guint64 ino, DBT *val);
+extern int dbfs_inode_write(DB_TXN *txn, struct dbfs_inode *ino);
+extern int dbfs_dir_new(DB_TXN *txn, guint64 parent, guint64 ino_n, const struct dbfs_inode *ino);
+extern int dbfs_dir_write(DB_TXN *txn, guint64 ino, DBT *val);
 extern void dbfs_inode_free(struct dbfs_inode *ino);
 
 static inline size_t dbfs_dirent_next(guint16 namelen)

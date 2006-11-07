@@ -195,7 +195,7 @@ void dbfs_inode_free(struct dbfs_inode *ino)
 	g_free(ino);
 }
 
-int dbfs_inode_write(struct dbfs_inode *ino)
+int dbfs_inode_write(DB_TXN *txn, struct dbfs_inode *ino)
 {
 	struct dbfs_raw_inode *raw_ino = ino->raw_inode;
 	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
@@ -216,10 +216,11 @@ int dbfs_inode_write(struct dbfs_inode *ino)
 	raw_ino->version = GUINT64_TO_LE(
 		GUINT64_FROM_LE(raw_ino->version) + 1);
 
-	return gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+	return gfs->meta->put(gfs->meta, txn, &key, &val, 0) ? -EIO : 0;
 }
 
-int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino)
+int dbfs_dir_new(DB_TXN *txn, guint64 parent, guint64 ino_n,
+		 const struct dbfs_inode *ino)
 {
 	void *mem, *p, *q;
 	struct dbfs_dirent *de;
@@ -274,14 +275,14 @@ int dbfs_dir_new(guint64 parent, guint64 ino_n, const struct dbfs_inode *ino)
 	val.data = mem;
 	val.size = p - mem;
 
-	rc = dbfs_dir_write(ino_n, &val);
+	rc = dbfs_dir_write(txn, ino_n, &val);
 
 	free(mem);
 
 	return rc;
 }
 
-int dbfs_dir_write(guint64 ino, DBT *val)
+int dbfs_dir_write(DB_TXN *txn, guint64 ino, DBT *val)
 {
 	DBT key;
 	char key_str[32];
@@ -293,6 +294,6 @@ int dbfs_dir_write(guint64 ino, DBT *val)
 	key.data = key_str;
 	key.size = strlen(key_str);
 
-	return gfs->meta->put(gfs->meta, NULL, &key, val, 0) ? -EIO : 0;
+	return gfs->meta->put(gfs->meta, txn, &key, val, 0) ? -EIO : 0;
 }
 

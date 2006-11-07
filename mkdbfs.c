@@ -28,7 +28,7 @@
 #include <db.h>
 #include "dbfs.h"
 
-static void make_root_dir(void)
+static int make_root_dir(DB_TXN *txn)
 {
 	struct dbfs_inode *ino;
 	guint64 curtime;
@@ -48,26 +48,28 @@ static void make_root_dir(void)
 	ino->raw_inode->atime = curtime;
 	ino->raw_inode->mtime = curtime;
 
-	rc = dbfs_inode_write(ino);
+	rc = dbfs_inode_write(txn, ino);
 	if (rc)
 		goto err_die;
 
-	rc = dbfs_dir_new(1, 1, ino);
+	rc = dbfs_dir_new(txn, 1, 1, ino);
 	if (rc)
 		goto err_die;
 	
 	dbfs_inode_free(ino);
-	return;
+	return 0;
 
 err_die:
 	errno = -rc;
 	perror("dbfs_inode_write");
-	exit(1);
+	return 1;
 }
 
 int main (int argc, char *argv[])
 {
 	struct dbfs *fs = dbfs_new();
+	DB_TXN *txn;
+	int pgm_rc = 0;
 
 	gfs = fs;
 
@@ -76,12 +78,33 @@ int main (int argc, char *argv[])
 
 	int rc = dbfs_open(fs, DB_CREATE, DB_CREATE, "mkdbfs");
 	if (rc) {
-		perror("mkdbfs");
+		perror("mkdbfs open");
 		return 1;
 	}
 
-	make_root_dir();
+	rc = fs->env->txn_begin(fs->env, NULL, &txn, 0);
+	if (rc) {
+		perror("mkdbfs txn_begin");
+		pgm_rc = 1;
+		goto out;
+	}
+
+	rc = make_root_dir(txn);
+	if (rc) {
+		txn->abort(txn);
+		pgm_rc = 1;
+		goto out;
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		perror("mkdbfs txn_commit");
+		pgm_rc = 1;
+		goto out;
+	}
+
+out:
 	dbfs_close(fs);
-	return 0;
+	return pgm_rc;
 }
 

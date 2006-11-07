@@ -102,22 +102,37 @@ static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	guint64 ino_n;
 	struct dbfs_inode *ino;
 	int rc;
+	DB_TXN *txn;
 
-	/* lookup inode in parent directory */
-	rc = dbfs_dir_lookup(parent, name, &ino_n);
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
-		fuse_reply_err(req, -rc);
+		fuse_reply_err(req, rc);
 		return;
 	}
 
-	rc = dbfs_inode_read(ino_n, &ino);
+	/* lookup inode in parent directory */
+	rc = dbfs_dir_lookup(txn, parent, name, &ino_n);
+	if (rc)
+		goto err_out;
+
+	rc = dbfs_inode_read(txn, ino_n, &ino);
+	if (rc)
+		goto err_out;
+
+	rc = txn->commit(txn, 0);
 	if (rc) {
-		fuse_reply_err(req, -rc);
+		dbfs_inode_free(ino);
+		fuse_reply_err(req, rc);
 		return;
 	}
 
 	/* send reply */
 	dbfs_reply_ino(req, ino);
+	return;
+
+err_out:
+	txn->abort(txn);
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
@@ -126,12 +141,25 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	struct dbfs_inode *ino;
 	struct stat st;
 	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		fuse_reply_err(req, rc);
+		return;
+	}
 
 	/* read inode from database */
-	rc = dbfs_inode_read(ino_n, &ino);
+	rc = dbfs_inode_read(txn, ino_n, &ino);
 	if (rc) {
-		fuse_reply_err(req, ENOENT);
-		return;
+		rc = ENOENT;
+		goto err_out_txn;
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
 	}
 
 	/* fill in stat buf, taking care to convert from
@@ -143,6 +171,12 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	fuse_reply_attr(req, &st, 2.0);
 
 	dbfs_inode_free(ino);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, rc);
 }
 
 static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
@@ -152,11 +186,18 @@ static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
 	struct dbfs_inode *ino;
 	struct stat st;
 	int rc, dirty = 0;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
 
 	/* read inode from database */
-	rc = dbfs_inode_read(ino_n, &ino);
+	rc = dbfs_inode_read(txn, ino_n, &ino);
 	if (rc)
-		goto err_out;
+		goto err_out_txn;
 
 	if (to_set & FUSE_SET_ATTR_MODE) {
 		ino->raw_inode->mode = GUINT32_TO_LE(attr->st_mode);
@@ -171,7 +212,7 @@ static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
 		dirty = 1;
 	}
 	if (to_set & FUSE_SET_ATTR_SIZE) {
-		rc = dbfs_inode_resize(ino, attr->st_size);
+		rc = dbfs_inode_resize(txn, ino, attr->st_size);
 		if (rc)
 			goto err_out_free;
 		ino->raw_inode->size = GUINT64_TO_LE(attr->st_size);
@@ -187,9 +228,16 @@ static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
 	}
 
 	if (dirty) {
-		rc = dbfs_inode_write(ino);
+		rc = dbfs_inode_write(txn, ino);
 		if (rc)
 			goto err_out_free;
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		txn = NULL;
+		goto err_out_free;
 	}
 
 	dbfs_fill_attr(ino, &st);
@@ -199,6 +247,9 @@ static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
 
 err_out_free:
 	dbfs_inode_free(ino);
+err_out_txn:
+	if (txn)
+		txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
 }
@@ -208,12 +259,24 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	int rc;
 	DBT val;
 	char *s;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
 
 	/* read link from database */
-	rc = dbfs_symlink_read(ino, &val);
+	rc = dbfs_symlink_read(txn, ino, &val);
+	if (rc)
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
 	if (rc) {
-		fuse_reply_err(req, -rc);
-		return;
+		rc = -rc;
+		free(val.data);
+		goto err_out;
 	}
 
 	/* send reply; use g_strndup to append a trailing null */
@@ -222,6 +285,12 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	g_free(s);
 
 	free(val.data);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static int dbfs_mode_validate(mode_t mode)
@@ -266,26 +335,42 @@ static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 {
 	struct dbfs_inode *ino;
 	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
 
 	rc = dbfs_mode_validate(mode);
-	if (rc) {
-		fuse_reply_err(req, -rc);
-		return;
-	}
+	if (rc)
+		goto err_out_txn;
 
 	/* these have separate inode-creation hooks */
 	if (S_ISDIR(mode) || S_ISLNK(mode)) {
-		fuse_reply_err(req, EINVAL);
-		return;
+		rc = -EINVAL;
+		goto err_out_txn;
 	}
 
-	rc = dbfs_mknod(parent, name, mode, rdev, &ino);
+	rc = dbfs_mknod(txn, parent, name, mode, rdev, &ino);
+	if (rc)
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
 	if (rc) {
-		fuse_reply_err(req, -rc);
-		return;
+		dbfs_inode_free(ino);
+		rc = -rc;
+		goto err_out;
 	}
 
 	dbfs_reply_ino(req, ino);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
@@ -293,21 +378,66 @@ static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 {
 	struct dbfs_inode *ino;
 	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
 
 	mode &= ALLPERMS;
 	mode |= S_IFDIR;
 
-	rc = dbfs_mknod(parent, name, mode, 0, &ino);
+	rc = dbfs_mknod(txn, parent, name, mode, 0, &ino);
 	if (rc)
-		fuse_reply_err(req, -rc);
-	else
-		dbfs_reply_ino(req, ino);
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbfs_inode_free(ino);
+		rc = -rc;
+		goto err_out;
+	}
+
+	dbfs_reply_ino(req, ino);
+
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
-	int rc = dbfs_unlink(parent, name, 0);
+	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto out;
+	}
+
+	rc = dbfs_unlink(txn, parent, name, 0);
+	if (rc)
+		goto err_out;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto out;
+	}
+
+out:
 	fuse_reply_err(req, -rc);
+	return;
+
+err_out:
+	txn->abort(txn);
+	goto out;
 }
 
 static void dbfs_op_link(fuse_req_t req, fuse_ino_t ino_n, fuse_ino_t parent,
@@ -315,24 +445,41 @@ static void dbfs_op_link(fuse_req_t req, fuse_ino_t ino_n, fuse_ino_t parent,
 {
 	struct dbfs_inode *ino;
 	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
 
 	/* read inode from database */
-	rc = dbfs_inode_read(ino_n, &ino);
+	rc = dbfs_inode_read(txn, ino_n, &ino);
 	if (rc) {
-		fuse_reply_err(req, ENOENT);
-		return;
+		rc = -ENOENT;
+		goto err_out_txn;
 	}
 
 	/* attempt to create hard link */
-	rc = dbfs_link(ino, ino_n, parent, newname);
+	rc = dbfs_link(txn, ino, ino_n, parent, newname);
 	if (rc)
+		goto err_out_ino;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbfs_inode_free(ino);
+		rc = -rc;
 		goto err_out;
+	}
 
 	dbfs_reply_ino(req, ino);
 	return;
 
-err_out:
+err_out_ino:
 	dbfs_inode_free(ino);
+err_out_txn:
+	txn->abort(txn);
+err_out:
 	fuse_reply_err(req, -rc);
 }
 
@@ -348,26 +495,64 @@ static void dbfs_op_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 			 off_t off, struct fuse_file_info *fi)
 {
 	void *buf = NULL;
-	int rc;
+	int rc, rc2;
+	DB_TXN *txn;
 
-	rc = dbfs_read(ino, off, size, &buf);
-	if (rc < 0) {
-		fuse_reply_err(req, -rc);
-		return;
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	rc = dbfs_read(txn, ino, off, size, &buf);
+	if (rc < 0)
+		goto err_out_txn;
+
+	rc2 = txn->commit(txn, 0);
+	if (rc2) {
+		rc = -rc2;
+		goto err_out;
 	}
 
 	fuse_reply_buf(req, buf, rc);
 	free(buf);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
 			  size_t size, off_t off, struct fuse_file_info *fi)
 {
-	int rc = dbfs_write(ino, off, buf, size);
+	int rc, rc2;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	rc = dbfs_write(txn, ino, off, buf, size);
 	if (rc < 0)
-		fuse_reply_err(req, -rc);
-	else
-		fuse_reply_write(req, rc);
+		goto err_out_txn;
+
+	rc2 = txn->commit(txn, 0);
+	if (rc2) {
+		rc = -rc2;
+		goto err_out;
+	}
+
+	fuse_reply_write(req, rc);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
@@ -384,16 +569,23 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	guint64 ino_n;
 	int rc;
 	DBT val;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto out;
+	}
 
 	/* get inode number associated with name */
-	rc = dbfs_dir_lookup(parent, name, &ino_n);
+	rc = dbfs_dir_lookup(txn, parent, name, &ino_n);
 	if (rc)
-		goto out;
+		goto out_txn;
 
 	/* read dir associated with name */
-	rc = dbfs_dir_read(ino_n, &val);
+	rc = dbfs_dir_read(txn, ino_n, &val);
 	if (rc)
-		goto out;
+		goto out_txn;
 
 	/* make sure dir only contains "." and ".." */
 	rc = dbfs_dir_foreach(val.data, dbfs_chk_empty, NULL);
@@ -401,11 +593,24 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 	/* if dbfs_chk_empty() returns non-zero, dir is not empty */
 	if (rc)
-		goto out;
+		goto out_txn;
 
 	/* dir is empty, go ahead and unlink */
-	rc = dbfs_unlink(parent, name, DBFS_UNLINK_DIR);
+	rc = dbfs_unlink(txn, parent, name, DBFS_UNLINK_DIR);
+	if (rc)
+		goto out_txn;
 
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto out;
+	}
+
+	fuse_reply_err(req, 0);
+	return;
+
+out_txn:
+	txn->abort(txn);
 out:
 	fuse_reply_err(req, -rc);
 }
@@ -415,27 +620,42 @@ static void dbfs_op_symlink(fuse_req_t req, const char *link,
 {
 	struct dbfs_inode *ino;
 	int rc;
+	DB_TXN *txn;
 
 	if (!g_utf8_validate(link, -1, NULL)) {
 		rc = -EINVAL;
 		goto err_out;
 	}
 
-	rc = dbfs_mknod(parent, name,
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	rc = dbfs_mknod(txn, parent, name,
 			S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0, &ino);
 	if (rc)
-		goto err_out;
+		goto err_out_txn;
 
-	rc = dbfs_symlink_write(GUINT64_FROM_LE(ino->raw_inode->ino), link);
+	rc = dbfs_symlink_write(txn, GUINT64_FROM_LE(ino->raw_inode->ino), link);
 	if (rc)
-		goto err_out_mknod;
+		goto err_out_ino;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbfs_inode_free(ino);
+		rc = -rc;
+		goto err_out;
+	}
 
 	dbfs_reply_ino(req, ino);
 	return;
 
-err_out_mknod:
-	dbfs_inode_del(ino);
+err_out_ino:
 	dbfs_inode_free(ino);
+err_out_txn:
+	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
 }
@@ -444,7 +664,31 @@ static void dbfs_op_rename(fuse_req_t req, fuse_ino_t parent,
 			   const char *name, fuse_ino_t newparent,
 			   const char *newname)
 {
-	int rc = dbfs_rename(parent, name, newparent, newname);
+	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto out;
+	}
+
+	rc = dbfs_rename(txn, parent, name, newparent, newname);
+	if (rc)
+		goto out_txn;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto out;
+	}
+
+	fuse_reply_err(req, 0);
+	return;
+
+out_txn:
+	txn->abort(txn);
+out:
 	fuse_reply_err(req, -rc);
 }
 
@@ -460,12 +704,23 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 {
 	DBT val;
 	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
 
 	/* read directory from database */
-	rc = dbfs_dir_read(ino, &val);
+	rc = dbfs_dir_read(txn, ino, &val);
+	if (rc)
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
 	if (rc) {
-		fuse_reply_err(req, -rc);
-		return;
+		rc = -rc;
+		goto err_out;
 	}
 
 	/* save for later use */
@@ -473,6 +728,12 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 
 	/* send reply */
 	fuse_reply_open(req, fi);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 struct dirbuf {
@@ -585,7 +846,31 @@ static void dbfs_op_setxattr(fuse_req_t req, fuse_ino_t ino,
 			     const char *name, const char *value,
 			     size_t size, int flags)
 {
-	int rc = dbfs_xattr_set(ino, name, value, size, flags);
+	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	rc = dbfs_xattr_set(txn, ino, name, value, size, flags);
+	if (rc)
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	fuse_reply_err(req, 0);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
 	fuse_reply_err(req, -rc);
 }
 
@@ -595,10 +880,23 @@ static void dbfs_op_getxattr(fuse_req_t req, fuse_ino_t ino,
 	void *buf = NULL;
 	size_t buflen = 0;
 	int rc;
+	DB_TXN *txn;
 
-	rc = dbfs_xattr_get(ino, name, &buf, &buflen);
-	if (rc)
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
 		goto err_out;
+	}
+
+	rc = dbfs_xattr_get(txn, ino, name, &buf, &buflen);
+	if (rc)
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
 
 	if (size == 0)
 		fuse_reply_xattr(req, buflen);
@@ -612,6 +910,8 @@ static void dbfs_op_getxattr(fuse_req_t req, fuse_ino_t ino,
 	free(buf);
 	return;
 
+err_out_txn:
+	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
 }
@@ -621,11 +921,22 @@ static void dbfs_op_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 	int rc;
 	void *buf;
 	size_t buflen;
+	DB_TXN *txn;
 
-	rc = dbfs_xattr_list(ino, &buf, &buflen);
-	if (rc < 0) {
-		fuse_reply_err(req, -rc);
-		return;
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	rc = dbfs_xattr_list(txn, ino, &buf, &buflen);
+	if (rc < 0)
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
 	}
 
 	if (size == 0)
@@ -636,12 +947,42 @@ static void dbfs_op_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 		fuse_reply_buf(req, buf, buflen);
 	
 	free(buf);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
+	fuse_reply_err(req, -rc);
 }
 
 static void dbfs_op_removexattr(fuse_req_t req, fuse_ino_t ino,
 				const char *name)
 {
-	int rc = dbfs_xattr_remove(ino, name, TRUE);
+	int rc;
+	DB_TXN *txn;
+
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	rc = dbfs_xattr_remove(txn, ino, name, TRUE);
+	if (rc)
+		goto err_out_txn;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		rc = -rc;
+		goto err_out;
+	}
+
+	fuse_reply_err(req, 0);
+	return;
+
+err_out_txn:
+	txn->abort(txn);
+err_out:
 	fuse_reply_err(req, -rc);
 }
 
@@ -651,13 +992,27 @@ static void dbfs_op_access(fuse_req_t req, fuse_ino_t ino_n, int mask)
 	const struct fuse_ctx *ctx;
 	int rc;
 	guint32 mode, uid, gid;
+	DB_TXN *txn;
 
 	ctx = fuse_req_ctx(req);
 	g_assert(ctx != NULL);
 
-	rc = dbfs_inode_read(ino_n, &ino);
-	if (rc)
+	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
+	if (rc) {
+		rc = -rc;
 		goto out;
+	}
+
+	rc = dbfs_inode_read(txn, ino_n, &ino);
+	if (rc)
+		goto out_txn;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbfs_inode_free(ino);
+		rc = -rc;
+		goto out;
+	}
 
 	mode = GUINT32_FROM_LE(ino->raw_inode->mode);
 	uid = GUINT32_FROM_LE(ino->raw_inode->uid);
@@ -680,6 +1035,11 @@ static void dbfs_op_access(fuse_req_t req, fuse_ino_t ino_n, int mask)
 
 out:
 	fuse_reply_err(req, -rc);
+	return;
+
+out_txn:
+	txn->abort(txn);
+	goto out;
 }
 
 static struct fuse_lowlevel_ops dbfs_ops = {

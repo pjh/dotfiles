@@ -42,7 +42,7 @@ struct dbfs_dirscan_info {
 	void			*end_ent;
 };
 
-int dbmeta_del(const char *key_str)
+int dbmeta_del(DB_TXN *txn, const char *key_str)
 {
 	DBT key;
 	int rc;
@@ -51,7 +51,7 @@ int dbmeta_del(const char *key_str)
 	key.size = strlen(key_str);
 
 	/* delete key 'key_str' from metadata database */
-	rc = gfs->meta->del(gfs->meta, NULL, &key, 0);
+	rc = gfs->meta->del(gfs->meta, txn, &key, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
 	if (rc)
@@ -79,7 +79,7 @@ static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
 	return 0;
 }
 
-int dbfs_inode_del(struct dbfs_inode *ino)
+int dbfs_inode_del(DB_TXN *txn, struct dbfs_inode *ino)
 {
 	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
 	char key[32];
@@ -87,23 +87,23 @@ int dbfs_inode_del(struct dbfs_inode *ino)
 
 	sprintf(key, "/inode/%Lu", (unsigned long long) ino_n);
 
-	rrc = dbmeta_del(key);
+	rrc = dbmeta_del(txn, key);
 
 	switch (ino->type) {
 	case IT_REG:
-		/* FIXME */
+		/* FIXME! */
 		break;
 
 	case IT_DIR:
 		sprintf(key, "/dir/%Lu", (unsigned long long) ino_n);
-		rc = dbmeta_del(key);
+		rc = dbmeta_del(txn, key);
 		if (rc && !rrc)
 			rrc = rc;
 		break;
 
 	case IT_SYMLINK:
 		sprintf(key, "/symlink/%Lu", (unsigned long long) ino_n);
-		rc = dbmeta_del(key);
+		rc = dbmeta_del(txn, key);
 		if (rc && !rrc)
 			rrc = rc;
 		break;
@@ -118,7 +118,7 @@ int dbfs_inode_del(struct dbfs_inode *ino)
 	return rrc;
 }
 
-int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
+int dbfs_inode_read(DB_TXN *txn, guint64 ino_n, struct dbfs_inode **ino_out)
 {
 	int rc;
 	DBT key, val;
@@ -136,7 +136,7 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	memset(&val, 0, sizeof(val));
 	val.flags = DB_DBT_MALLOC;
 
-	rc = gfs->meta->get(gfs->meta, NULL, &key, &val, 0);
+	rc = gfs->meta->get(gfs->meta, txn, &key, &val, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
 	if (rc)
@@ -161,7 +161,7 @@ int dbfs_inode_read(guint64 ino_n, struct dbfs_inode **ino_out)
 	return 0;
 }
 
-static int dbfs_inode_next(struct dbfs_inode **ino_out)
+static int dbfs_inode_next(DB_TXN *txn, struct dbfs_inode **ino_out)
 {
 	struct dbfs_inode *ino;
 	int rc;
@@ -175,7 +175,7 @@ static int dbfs_inode_next(struct dbfs_inode **ino_out)
 	 * as the next free inode number.
 	 */
 	while (1) {
-		rc = dbfs_inode_read(gfs->next_inode, &ino);
+		rc = dbfs_inode_read(txn, gfs->next_inode, &ino);
 		if (rc)
 			break;
 
@@ -209,7 +209,7 @@ static int dbfs_inode_next(struct dbfs_inode **ino_out)
 	return 0;
 }
 
-int dbfs_dir_read(guint64 ino, DBT *val)
+int dbfs_dir_read(DB_TXN *txn, guint64 ino, DBT *val)
 {
 	DBT key;
 	char key_str[32];
@@ -224,7 +224,7 @@ int dbfs_dir_read(guint64 ino, DBT *val)
 	memset(val, 0, sizeof(*val));
 	val->flags = DB_DBT_MALLOC;
 
-	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
+	rc = gfs->meta->get(gfs->meta, txn, &key, val, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOTDIR;
 	return rc ? -EIO : 0;
@@ -277,7 +277,7 @@ static int dbfs_dir_scan1(struct dbfs_dirent *de, void *userdata)
 	return 0;
 }
 
-int dbfs_dir_lookup(guint64 parent, const char *name, guint64 *ino)
+int dbfs_dir_lookup(DB_TXN *txn, guint64 parent, const char *name, guint64 *ino)
 {
 	struct dbfs_dirscan_info di;
 	struct dbfs_dirent *de;
@@ -287,7 +287,7 @@ int dbfs_dir_lookup(guint64 parent, const char *name, guint64 *ino)
 	*ino = 0;
 
 	/* read directory from database */
-	rc = dbfs_dir_read(parent, &val);
+	rc = dbfs_dir_read(txn, parent, &val);
 	if (rc)
 		return rc;
 
@@ -313,13 +313,13 @@ out:
 	return rc;
 }
 
-static int dbfs_dirent_del(guint64 parent, const char *name)
+static int dbfs_dirent_del(DB_TXN *txn, guint64 parent, const char *name)
 {
 	struct dbfs_dirscan_info ui;
 	DBT dir_val;
 	int rc, del_len, tail_len;
 
-	rc = dbfs_dir_read(parent, &dir_val);
+	rc = dbfs_dir_read(txn, parent, &dir_val);
 	if (rc)
 		return rc;
 
@@ -340,7 +340,7 @@ static int dbfs_dirent_del(guint64 parent, const char *name)
 	memmove(ui.start_ent, ui.end_ent, tail_len);
 	dir_val.size -= del_len;
 
-	rc = dbfs_dir_write(parent, &dir_val);
+	rc = dbfs_dir_write(txn, parent, &dir_val);
 
 	free(dir_val.data);
 
@@ -371,7 +371,7 @@ static int dbfs_name_validate(const char *name)
 	return 0;
 }
 
-static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
+static int dbfs_dir_append(DB_TXN *txn, guint64 parent, guint64 ino_n, const char *name)
 {
 	struct dbfs_dirscan_info di;
 	struct dbfs_dirent *de;
@@ -385,7 +385,7 @@ static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 		return rc;
 
 	/* read parent directory from database */
-	rc = dbfs_dir_read(parent, &val);
+	rc = dbfs_dir_read(txn, parent, &val);
 	if (rc)
 		return rc;
 
@@ -437,14 +437,14 @@ static int dbfs_dir_append(guint64 parent, guint64 ino_n, const char *name)
 
 	val.size = p - val.data;
 
-	rc = dbfs_dir_write(parent, &val);
+	rc = dbfs_dir_write(txn, parent, &val);
 
 out:
 	free(val.data);
 	return rc;
 }
 
-int dbfs_symlink_read(guint64 ino, DBT *val)
+int dbfs_symlink_read(DB_TXN *txn, guint64 ino, DBT *val)
 {
 	DBT key;
 	char key_str[32];
@@ -459,13 +459,13 @@ int dbfs_symlink_read(guint64 ino, DBT *val)
 	memset(val, 0, sizeof(*val));
 	val->flags = DB_DBT_MALLOC;
 
-	rc = gfs->meta->get(gfs->meta, NULL, &key, val, 0);
+	rc = gfs->meta->get(gfs->meta, txn, &key, val, 0);
 	if (rc == DB_NOTFOUND)
 		return -EINVAL;
 	return rc ? -EIO : 0;
 }
 
-int dbfs_symlink_write(guint64 ino, const char *link)
+int dbfs_symlink_write(DB_TXN *txn, guint64 ino, const char *link)
 {
 	DBT key, val;
 	char key_str[32];
@@ -480,17 +480,17 @@ int dbfs_symlink_write(guint64 ino, const char *link)
 	val.data = (void *) link;
 	val.size = strlen(link);
 
-	return gfs->meta->put(gfs->meta, NULL, &key, &val, 0) ? -EIO : 0;
+	return gfs->meta->put(gfs->meta, txn, &key, &val, 0) ? -EIO : 0;
 }
 
-int dbfs_link(struct dbfs_inode *ino, guint64 ino_n, guint64 parent,
-	      const char *name)
+int dbfs_link(DB_TXN *txn, struct dbfs_inode *ino, guint64 ino_n,
+	      guint64 parent, const char *name)
 {
 	guint32 nlink;
 	int rc;
 
 	/* make sure it doesn't exist yet */
-	rc = dbfs_dir_append(parent, ino_n, name);
+	rc = dbfs_dir_append(txn, parent, ino_n, name);
 	if (rc)
 		return rc;
 
@@ -499,22 +499,20 @@ int dbfs_link(struct dbfs_inode *ino, guint64 ino_n, guint64 parent,
 	nlink++;
 	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
 
-	/* write inode; if fails, undo directory modification */
-	rc = dbfs_inode_write(ino);
-	if (rc)
-		dbfs_dirent_del(parent, name);
+	/* write inode; if fails, DB TXN undoes directory modification */
+	rc = dbfs_inode_write(txn, ino);
 
 	return rc;
 }
 
-int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
+int dbfs_unlink(DB_TXN *txn, guint64 parent, const char *name, unsigned long flags)
 {
 	struct dbfs_inode *ino;
 	guint64 ino_n;
 	int rc, is_dir;
 	guint32 nlink;
 
-	rc = dbfs_dir_lookup(parent, name, &ino_n);
+	rc = dbfs_dir_lookup(txn, parent, name, &ino_n);
 	if (rc)
 		goto out;
 
@@ -523,7 +521,7 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 		goto out;
 	}
 
-	rc = dbfs_inode_read(ino_n, &ino);
+	rc = dbfs_inode_read(txn, ino_n, &ino);
 	if (rc)
 		goto out;
 
@@ -533,7 +531,7 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 		goto out_ino;
 	}
 
-	rc = dbfs_dirent_del(parent, name);
+	rc = dbfs_dirent_del(txn, parent, name);
 	if (rc)
 		goto out_ino;
 
@@ -545,9 +543,9 @@ int dbfs_unlink(guint64 parent, const char *name, unsigned long flags)
 	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
 
 	if (!nlink)
-		rc = dbfs_inode_del(ino);
+		rc = dbfs_inode_del(txn, ino);
 	else
-		rc = dbfs_inode_write(ino);
+		rc = dbfs_inode_write(txn, ino);
 
 out_ino:
 	dbfs_inode_free(ino);
@@ -555,8 +553,8 @@ out:
 	return rc;
 }
 
-int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
-	       struct dbfs_inode **ino_out)
+int dbfs_mknod(DB_TXN *txn, guint64 parent, const char *name, guint32 mode,
+	       guint64 rdev, struct dbfs_inode **ino_out)
 {
 	struct dbfs_inode *ino;
 	int rc, is_dir;
@@ -565,7 +563,7 @@ int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
 
 	*ino_out = NULL;
 
-	rc = dbfs_inode_next(&ino);
+	rc = dbfs_inode_next(txn, &ino);
 	if (rc)
 		return rc;
 
@@ -577,17 +575,17 @@ int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
 	ino->raw_inode->nlink = GUINT32_TO_LE(nlink);
 	ino->raw_inode->rdev = GUINT64_TO_LE(rdev);
 
-	rc = dbfs_inode_write(ino);
+	rc = dbfs_inode_write(txn, ino);
 	if (rc)
 		goto err_out;
 
 	if (is_dir) {
-		rc = dbfs_dir_new(parent, ino_n, ino);
+		rc = dbfs_dir_new(txn, parent, ino_n, ino);
 		if (rc)
 			goto err_out_del;
 	}
 
-	rc = dbfs_dir_append(parent, ino_n, name);
+	rc = dbfs_dir_append(txn, parent, ino_n, name);
 	if (rc)
 		goto err_out_del;
 
@@ -595,13 +593,13 @@ int dbfs_mknod(guint64 parent, const char *name, guint32 mode, guint64 rdev,
 	return 0;
 
 err_out_del:
-	dbfs_inode_del(ino);
+	/* txn abort will delete inode */
 err_out:
 	dbfs_inode_free(ino);
 	return rc;
 }
 
-int dbfs_rename(guint64 parent, const char *name,
+int dbfs_rename(DB_TXN *txn, guint64 parent, const char *name,
 		guint64 new_parent, const char *new_name)
 {
 	int rc;
@@ -610,19 +608,19 @@ int dbfs_rename(guint64 parent, const char *name,
 	if ((parent == new_parent) && (!strcmp(name, new_name)))
 		return -EINVAL;
 
-	rc = dbfs_dir_lookup(parent, name, &ino_n);
+	rc = dbfs_dir_lookup(txn, parent, name, &ino_n);
 	if (rc)
 		return rc;
 
-	rc = dbfs_dirent_del(parent, name);
+	rc = dbfs_dirent_del(txn, parent, name);
 	if (rc)
 		return rc;
 
-	rc = dbfs_unlink(new_parent, new_name, 0);
+	rc = dbfs_unlink(txn, new_parent, new_name, 0);
 	if (rc && (rc != -ENOENT))
 		return rc;
 
-	return dbfs_dir_append(new_parent, ino_n, new_name);
+	return dbfs_dir_append(txn, new_parent, ino_n, new_name);
 }
 
 static void ext_list_free(GList *ext_list)
@@ -732,7 +730,7 @@ static gboolean is_null_id(dbfs_blk_id_t *id)
 	return is_zero_buf(id, DBFS_BLK_ID_LEN);
 }
 
-static int dbfs_ext_read(dbfs_blk_id_t *id, void **buf, size_t *buflen)
+static int dbfs_ext_read(DB_TXN *txn, dbfs_blk_id_t *id, void **buf, size_t *buflen)
 {
 	DBT key, val;
 	int rc;
@@ -744,7 +742,7 @@ static int dbfs_ext_read(dbfs_blk_id_t *id, void **buf, size_t *buflen)
 	memset(&val, 0, sizeof(val));
 	val.flags = DB_DBT_MALLOC;
 
-	rc = gfs->data->get(gfs->data, NULL, &key, &val, 0);
+	rc = gfs->data->get(gfs->data, txn, &key, &val, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
 	if (rc)
@@ -755,7 +753,7 @@ static int dbfs_ext_read(dbfs_blk_id_t *id, void **buf, size_t *buflen)
 	return 0;
 }
 
-int dbfs_read(guint64 ino_n, guint64 off, size_t read_req_size,
+int dbfs_read(DB_TXN *txn, guint64 ino_n, guint64 off, size_t read_req_size,
 	      void **buf_out)
 {
 	struct dbfs_inode *ino;
@@ -765,7 +763,7 @@ int dbfs_read(guint64 ino_n, guint64 off, size_t read_req_size,
 	unsigned int pos = 0;
 	int rc;
 
-	rc = dbfs_inode_read(ino_n, &ino);
+	rc = dbfs_inode_read(txn, ino_n, &ino);
 	if (rc)
 		goto out;
 
@@ -791,7 +789,7 @@ int dbfs_read(guint64 ino_n, guint64 off, size_t read_req_size,
 			void *frag;
 			size_t fraglen;
 
-			rc = dbfs_ext_read(&ext->id, &frag, &fraglen);
+			rc = dbfs_ext_read(txn, &ext->id, &frag, &fraglen);
 			if (rc) {
 				free(buf);
 				buf = NULL;
@@ -823,7 +821,8 @@ out:
 	return rc < 0 ? rc : buflen;
 }
 
-static int dbfs_write_unique_buf(DBT *key, const void *buf, size_t buflen)
+static int dbfs_write_unique_buf(DB_TXN *txn, DBT *key, const void *buf,
+				 size_t buflen)
 {
 	struct dbfs_hashref ref;
 	DBT val;
@@ -835,7 +834,7 @@ static int dbfs_write_unique_buf(DBT *key, const void *buf, size_t buflen)
 	val.data = &ref;
 	val.size = sizeof(ref);
 
-	rc = gfs->hashref->put(gfs->hashref, NULL, key, &val, 0);
+	rc = gfs->hashref->put(gfs->hashref, txn, key, &val, 0);
 	if (rc)
 		return -EIO;
 
@@ -843,20 +842,14 @@ static int dbfs_write_unique_buf(DBT *key, const void *buf, size_t buflen)
 	val.data = (void *) buf;
 	val.size = buflen;
 
-	rc = gfs->data->put(gfs->data, NULL, key, &val, DB_NOOVERWRITE);
-	if (rc) {
-		memset(&val, 0, sizeof(val));
-		val.data = &ref;
-		val.size = sizeof(ref);
-		gfs->hashref->del(gfs->hashref, NULL, key, 0);
-
+	rc = gfs->data->put(gfs->data, txn, key, &val, DB_NOOVERWRITE);
+	if (rc)
 		return -EIO;
-	}
 
 	return 0;
 }
 
-static int dbfs_write_buf(const void *buf, size_t buflen,
+static int dbfs_write_buf(DB_TXN *txn, const void *buf, size_t buflen,
 			  struct dbfs_extent *ext)
 {
 	struct dbfs_hashref *ref;
@@ -881,25 +874,25 @@ static int dbfs_write_buf(const void *buf, size_t buflen,
 	memset(&val, 0, sizeof(val));
 	val.flags = DB_DBT_MALLOC;
 
-	rc = gfs->hashref->get(gfs->hashref, NULL, &key, &val, 0);
+	rc = gfs->hashref->get(gfs->hashref, txn, &key, &val, 0);
 	if (rc && (rc != DB_NOTFOUND))
 		return -EIO;
 
 	if (rc == DB_NOTFOUND)
-		return dbfs_write_unique_buf(&key, buf, buflen);
+		return dbfs_write_unique_buf(txn, &key, buf, buflen);
 
 	ref = val.data;
 	g_assert(val.size == sizeof(*ref));
 
 	ref->refs = GUINT32_TO_LE(GUINT32_FROM_LE(ref->refs) + 1);
 
-	rc = gfs->hashref->put(gfs->hashref, NULL, &key, &val, 0);
+	rc = gfs->hashref->put(gfs->hashref, txn, &key, &val, 0);
 	free(val.data);
 
 	return rc ? -EIO : 0;
 }
 
-static int dbfs_data_unref(dbfs_blk_id_t *id)
+static int dbfs_data_unref(DB_TXN *txn, dbfs_blk_id_t *id)
 {
 	struct dbfs_hashref *ref;
 	guint32 refs;
@@ -916,7 +909,7 @@ static int dbfs_data_unref(dbfs_blk_id_t *id)
 	memset(&val, 0, sizeof(val));
 	val.flags = DB_DBT_MALLOC;
 
-	rc = gfs->hashref->get(gfs->hashref, NULL, &key, &val, 0);
+	rc = gfs->hashref->get(gfs->hashref, txn, &key, &val, 0);
 	if (rc == DB_NOTFOUND)
 		return -ENOENT;
 	if (rc)
@@ -930,7 +923,7 @@ static int dbfs_data_unref(dbfs_blk_id_t *id)
 		refs--;
 		ref->refs = GUINT32_TO_LE(refs);
 
-		rc = gfs->hashref->put(gfs->hashref, NULL, &key, &val, 0);
+		rc = gfs->hashref->put(gfs->hashref, txn, &key, &val, 0);
 		free(val.data);
 
 		return rc ? -EIO : 0;
@@ -938,8 +931,8 @@ static int dbfs_data_unref(dbfs_blk_id_t *id)
 
 	free(val.data);
 
-	rc = gfs->hashref->del(gfs->hashref, NULL, &key, 0);
-	rc2 = gfs->data->del(gfs->data, NULL, &key, 0);
+	rc = gfs->hashref->del(gfs->hashref, txn, &key, 0);
+	rc2 = gfs->data->del(gfs->data, txn, &key, 0);
 
 	return (rc || rc2) ? -EIO : 0;
 }
@@ -965,7 +958,7 @@ static int dbfs_inode_realloc(struct dbfs_inode *ino,
 	return 0;
 }
 
-int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size)
+int dbfs_inode_resize(DB_TXN *txn, struct dbfs_inode *ino, guint64 new_size)
 {
 	guint64 old_size, diff, diff_ext;
 	unsigned int grow, i, new_n_extents, tmp;
@@ -1007,7 +1000,7 @@ int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size)
 			if (ext_len > diff)
 				break;
 
-			rc = dbfs_data_unref(&ext->id);
+			rc = dbfs_data_unref(txn, &ext->id);
 			if (rc)
 				return rc;
 
@@ -1036,25 +1029,26 @@ int dbfs_inode_resize(struct dbfs_inode *ino, guint64 new_size)
 	return 0;
 }
 
-int dbfs_write(guint64 ino_n, guint64 off, const void *buf, size_t buflen)
+int dbfs_write(DB_TXN *txn, guint64 ino_n, guint64 off, const void *buf,
+	       size_t buflen)
 {
 	struct dbfs_extent ext;
 	struct dbfs_inode *ino;
 	int rc;
 	guint64 i_size;
 
-	rc = dbfs_inode_read(ino_n, &ino);
+	rc = dbfs_inode_read(txn, ino_n, &ino);
 	if (rc)
 		return rc;
 
-	rc = dbfs_write_buf(buf, buflen, &ext);
+	rc = dbfs_write_buf(txn, buf, buflen, &ext);
 	if (rc)
 		goto out;
 
 	i_size = GUINT64_FROM_LE(ino->raw_inode->size);
 
 	if ((off != i_size) && ((off + buflen) > i_size)) {
-		rc = dbfs_inode_resize(ino, off + 1);
+		rc = dbfs_inode_resize(txn, ino, off + 1);
 		if (rc)
 			goto err_out;
 	}
@@ -1065,7 +1059,7 @@ int dbfs_write(guint64 ino_n, guint64 off, const void *buf, size_t buflen)
 	if (off == i_size) {
 		unsigned int idx;
 
-		rc = dbfs_inode_resize(ino, i_size + buflen);
+		rc = dbfs_inode_resize(txn, ino, i_size + buflen);
 		if (rc)
 			goto err_out;
 
@@ -1082,7 +1076,6 @@ int dbfs_write(guint64 ino_n, guint64 off, const void *buf, size_t buflen)
 	goto out;
 
 err_out:
-	dbfs_data_unref(&ext.id);
 out:
 	dbfs_inode_free(ino);
 	return rc;
