@@ -41,7 +41,7 @@ struct dbfs_dirscan_info {
 	void			*ent;
 };
 
-static int dbfs_data_unref(DB_TXN *txn, dbfs_blk_id_t *id);
+static int dbfs_data_unref(DB_TXN *txn, const dbfs_blk_id_t *id);
 
 int dbmeta_del(DB_TXN *txn, const char *key_str)
 {
@@ -80,7 +80,7 @@ static int dbfs_mode_type(guint32 mode, enum dbfs_inode_type *itype)
 	return 0;
 }
 
-static int dbfs_inode_del_data(DB_TXN *txn, struct dbfs_inode *ino)
+static int dbfs_inode_del_data(DB_TXN *txn, const struct dbfs_inode *ino)
 {
 	int i, rc = 0;
 
@@ -93,7 +93,7 @@ static int dbfs_inode_del_data(DB_TXN *txn, struct dbfs_inode *ino)
 	return 0;
 }
 
-int dbfs_inode_del(DB_TXN *txn, struct dbfs_inode *ino)
+int dbfs_inode_del(DB_TXN *txn, const struct dbfs_inode *ino)
 {
 	guint64 ino_n = GUINT64_FROM_LE(ino->raw_inode->ino);
 	char key[32];
@@ -388,7 +388,8 @@ static int dbfs_name_validate(const char *name)
 	return 0;
 }
 
-static int dbfs_dir_append(DB_TXN *txn, guint64 parent, guint64 ino_n, const char *name)
+static int dbfs_dir_append(DB_TXN *txn, guint64 parent, guint64 ino_n,
+			   const char *name)
 {
 	struct dbfs_dirscan_info di;
 	struct dbfs_dirent *de;
@@ -522,7 +523,8 @@ int dbfs_link(DB_TXN *txn, struct dbfs_inode *ino, guint64 ino_n,
 	return rc;
 }
 
-int dbfs_unlink(DB_TXN *txn, guint64 parent, const char *name, unsigned long flags)
+int dbfs_unlink(DB_TXN *txn, guint64 parent, const char *name,
+		unsigned long flags)
 {
 	struct dbfs_inode *ino;
 	guint64 ino_n;
@@ -652,8 +654,8 @@ static void ext_list_free(GList *ext_list)
 	g_list_free(ext_list);
 }
 
-static int dbfs_ext_match(struct dbfs_inode *ino, guint64 off, guint32 rd_size,
-			  GList **ext_list_out)
+static int dbfs_ext_match(const struct dbfs_inode *ino, guint64 off,
+			  guint32 rd_size, GList **ext_list_out)
 {
 	struct dbfs_extent *ext;
 	guint64 pos;
@@ -742,18 +744,19 @@ static gboolean is_zero_buf(const void *buf, size_t buflen)
 	return TRUE;
 }
 
-static gboolean is_null_id(dbfs_blk_id_t *id)
+static gboolean is_null_id(const dbfs_blk_id_t *id)
 {
 	return is_zero_buf(id, DBFS_BLK_ID_LEN);
 }
 
-static int dbfs_ext_read(DB_TXN *txn, dbfs_blk_id_t *id, void **buf, size_t *buflen)
+static int dbfs_ext_read(DB_TXN *txn, const dbfs_blk_id_t *id, void **buf,
+			 size_t *buflen)
 {
 	DBT key, val;
 	int rc;
 
 	memset(&key, 0, sizeof(key));
-	key.data = id;
+	key.data = (void *) id;
 	key.size = DBFS_BLK_ID_LEN;
 
 	memset(&val, 0, sizeof(val));
@@ -838,7 +841,7 @@ out:
 	return rc < 0 ? rc : buflen;
 }
 
-static int dbfs_write_unique_buf(DB_TXN *txn, DBT *key, const void *buf,
+static int dbfs_write_unique_buf(DB_TXN *txn, const DBT *key, const void *buf,
 				 size_t buflen)
 {
 	struct dbfs_hashref ref;
@@ -851,7 +854,7 @@ static int dbfs_write_unique_buf(DB_TXN *txn, DBT *key, const void *buf,
 	val.data = &ref;
 	val.size = sizeof(ref);
 
-	rc = gfs->hashref->put(gfs->hashref, txn, key, &val, 0);
+	rc = gfs->hashref->put(gfs->hashref, txn, (DBT *) key, &val, 0);
 	if (rc)
 		return -EIO;
 
@@ -859,7 +862,7 @@ static int dbfs_write_unique_buf(DB_TXN *txn, DBT *key, const void *buf,
 	val.data = (void *) buf;
 	val.size = buflen;
 
-	rc = gfs->data->put(gfs->data, txn, key, &val, DB_NOOVERWRITE);
+	rc = gfs->data->put(gfs->data, txn, (DBT *) key, &val, DB_NOOVERWRITE);
 	if (rc)
 		return -EIO;
 
@@ -909,7 +912,7 @@ static int dbfs_write_buf(DB_TXN *txn, const void *buf, size_t buflen,
 	return rc ? -EIO : 0;
 }
 
-static int dbfs_data_unref(DB_TXN *txn, dbfs_blk_id_t *id)
+static int dbfs_data_unref(DB_TXN *txn, const dbfs_blk_id_t *id)
 {
 	struct dbfs_hashref *ref;
 	guint32 refs;
@@ -920,7 +923,7 @@ static int dbfs_data_unref(DB_TXN *txn, dbfs_blk_id_t *id)
 		return 0;
 
 	memset(&key, 0, sizeof(key));
-	key.data = id;
+	key.data = (void *) id;
 	key.size = DBFS_BLK_ID_LEN;
 
 	memset(&val, 0, sizeof(val));
@@ -958,7 +961,7 @@ static int dbfs_inode_realloc(struct dbfs_inode *ino,
 			      unsigned int new_n_extents)
 {
 	struct dbfs_raw_inode *new_raw;
-	size_t new_size = sizeof(struct dbfs_inode) + 
+	size_t new_size = sizeof(struct dbfs_inode) +
 		(sizeof(struct dbfs_extent) * new_n_extents);
 
 	new_raw = g_malloc0(new_size);
@@ -996,12 +999,12 @@ int dbfs_inode_resize(DB_TXN *txn, struct dbfs_inode *ino, guint64 new_size)
 		rc = dbfs_inode_realloc(ino, new_n_extents);
 		if (rc)
 			return rc;
-		
+
 		for (i = old_n_extents; i < new_n_extents; i++) {
 			g_assert(diff > 0);
 			tmp = MIN(diff, DBFS_MAX_EXT_LEN);
 
-			memset(&ino->raw_inode->blocks[i], 0, 
+			memset(&ino->raw_inode->blocks[i], 0,
 				sizeof(struct dbfs_extent));
 			ino->raw_inode->blocks[i].len =
 				GUINT32_TO_LE(tmp);

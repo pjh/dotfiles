@@ -55,7 +55,7 @@ static int make_root_dir(DB_TXN *txn)
 	rc = dbfs_dir_new(txn, 1, 1, ino);
 	if (rc)
 		goto err_die;
-	
+
 	dbfs_inode_free(ino);
 	return 0;
 
@@ -76,7 +76,7 @@ int main (int argc, char *argv[])
 	if (!fs)
 		return 1;
 
-	int rc = dbfs_open(fs, DB_CREATE, DB_CREATE, "mkdbfs");
+	int rc = dbfs_open(fs, DB_CREATE, DB_CREATE, "mkdbfs", FALSE);
 	if (rc) {
 		perror("mkdbfs open");
 		return 1;

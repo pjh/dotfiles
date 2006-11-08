@@ -150,7 +150,7 @@ extern int dbfs_mknod(DB_TXN *txn, guint64 parent, const char *name,
 		      guint32 mode, guint64 rdev,
 		      struct dbfs_inode **ino);
 extern int dbfs_symlink_write(DB_TXN *txn, guint64 ino, const char *link);
-extern int dbfs_inode_del(DB_TXN *txn, struct dbfs_inode *ino);
+extern int dbfs_inode_del(DB_TXN *txn, const struct dbfs_inode *ino);
 extern int dbfs_xattr_get(DB_TXN *TXN, guint64 ino_n, const char *name,
 			  void **buf_out, size_t *buflen_out);
 extern int dbfs_xattr_set(DB_TXN *TXN, guint64 ino_n, const char *name,
@@ -164,7 +164,8 @@ extern int dbfs_inode_resize(DB_TXN *txn, struct dbfs_inode *ino, guint64 new_si
 extern int dbfs_rename(DB_TXN *txn, guint64, const char *, guint64, const char *);
 
 /* libdbfs.c */
-extern int dbfs_open(struct dbfs *, unsigned int, unsigned int, const char *);
+extern int dbfs_open(struct dbfs *, unsigned int, unsigned int, const char *,
+		     gboolean syslog);
 extern void dbfs_close(struct dbfs *fs);
 extern struct dbfs *dbfs_new(void);
 extern void dbfs_free(struct dbfs *fs);

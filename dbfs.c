@@ -99,9 +99,11 @@ static void dbfs_op_init(void *userdata)
 
 	fs = dbfs_new();
 
-	rc = dbfs_open(fs, DB_RECOVER | DB_CREATE, DB_CREATE, "dbfs");
-	if (rc)
+	rc = dbfs_open(fs, DB_RECOVER | DB_CREATE, DB_CREATE, "dbfs", TRUE);
+	if (rc) {
+		syslog(LOG_ERR, "dbfs_open failed");
 		abort();			/* TODO: improve */
+	}
 
 	gfs = fs;
 
@@ -972,7 +974,7 @@ static void dbfs_op_statfs(fuse_req_t req)
 {
 	struct statvfs f;
 	struct statfs st;
-	
+
 	if (debugging)
 		syslog(LOG_DEBUG, "ENTER dbfs_op_statfs");
 
@@ -1114,7 +1116,7 @@ static void dbfs_op_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 		fuse_reply_err(req, ERANGE);
 	else
 		fuse_reply_buf(req, buf, buflen);
-	
+
 	free(buf);
 	return;
 

@@ -21,11 +21,18 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include <syslog.h>
 #include <glib.h>
 #include <db.h>
 #include "dbfs.h"
 
 struct dbfs *gfs;
+
+static void dbfs_db_syslog(const DB_ENV *dbenv, const char *errpfx,
+			const char *msg)
+{
+	syslog(LOG_WARNING, "%s: %s", errpfx, msg);
+}
 
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		   unsigned int page_size, unsigned int flags)
@@ -65,7 +72,7 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 }
 
 int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
-	      const char *errpfx)
+	      const char *errpfx, gboolean syslog)
 {
 	const char *db_home, *db_password;
 	int rc;
@@ -86,8 +93,10 @@ int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
 		return rc;
 	}
 
-	/* stderr is wrong; should use syslog instead */
-	fs->env->set_errfile(fs->env, stderr);
+	if (syslog)
+		fs->env->set_errcall(fs->env, dbfs_db_syslog);
+	else
+		fs->env->set_errfile(fs->env, stderr);
 	fs->env->set_errpfx(fs->env, errpfx);
 
 	if (db_password) {

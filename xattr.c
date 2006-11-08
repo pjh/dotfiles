@@ -270,7 +270,7 @@ int dbfs_xattr_get(DB_TXN *txn, guint64 ino_n, const char *name,
 	rc = dbfs_xattr_read(txn, ino_n, name, &val);
 	if (rc)
 		return rc;
-	
+
 	*buf_out = val.data;
 	*buflen_out = val.size;
 

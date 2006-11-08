@@ -93,7 +93,8 @@ int main (int argc, char *argv[])
 	if (!fs)
 		return 1;
 
-	rc = dbfs_open(fs, DB_RECOVER | DB_CREATE, DB_CREATE, "dbdebugfs");
+	rc = dbfs_open(fs, DB_RECOVER | DB_CREATE, DB_CREATE,
+		       "dbdebugfs", FALSE);
 	if (rc) {
 		perror("dbfsck");
 		return 1;
