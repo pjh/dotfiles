@@ -130,6 +130,8 @@ struct dbfs {
 	guint64			next_inode;
 };
 
+extern int debugging;
+
 
 typedef int (*dbfs_dir_actor_t) (struct dbfs_dirent *, void *);
 

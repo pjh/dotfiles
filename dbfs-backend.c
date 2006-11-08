@@ -990,14 +990,19 @@ int dbfs_inode_resize(DB_TXN *txn, struct dbfs_inode *ino, guint64 new_size)
 		diff_ext++;
 
 	if (grow) {
+		unsigned int old_n_extents = ino->n_extents;
 		new_n_extents = ino->n_extents + diff_ext;
+
 		rc = dbfs_inode_realloc(ino, new_n_extents);
 		if (rc)
 			return rc;
-
-		for (i = ino->n_extents; i < new_n_extents; i++) {
+		
+		for (i = old_n_extents; i < new_n_extents; i++) {
 			g_assert(diff > 0);
 			tmp = MIN(diff, DBFS_MAX_EXT_LEN);
+
+			memset(&ino->raw_inode->blocks[i], 0, 
+				sizeof(struct dbfs_extent));
 			ino->raw_inode->blocks[i].len =
 				GUINT32_TO_LE(tmp);
 			diff -= tmp;
@@ -1084,12 +1089,13 @@ int dbfs_write(DB_TXN *txn, guint64 ino_n, guint64 off, const void *buf,
 
 		g_assert(is_null_id(&ino->raw_inode->blocks[idx].id));
 		memcpy(&ino->raw_inode->blocks[idx], &ext, sizeof(ext));
-
-		goto out;
 	}
 
 	/* FIXME: update data in middle of file */
 
+	rc = dbfs_inode_write(txn, ino);
+	if (rc == 0)
+		rc = buflen;
 	goto out;
 
 err_out:

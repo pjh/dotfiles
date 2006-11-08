@@ -26,23 +26,13 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <syslog.h>
 #include <sys/vfs.h>
 #include <glib.h>
 #include <db.h>
 #include "dbfs.h"
 
-static void dbfs_fill_ent(const struct dbfs_inode *ino,
-			  struct fuse_entry_param *ent)
-{
-	memset(ent, 0, sizeof(*ent));
-
-	ent->ino = GUINT64_FROM_LE(ino->raw_inode->ino);
-	ent->generation = GUINT64_FROM_LE(ino->raw_inode->version);
-
-	/* these timeouts are just a guess */
-	ent->attr_timeout = 2.0;
-	ent->entry_timeout = 2.0;
-}
+int debugging = 0;
 
 static void dbfs_fill_attr(const struct dbfs_inode *ino, struct stat *st)
 {
@@ -60,6 +50,32 @@ static void dbfs_fill_attr(const struct dbfs_inode *ino, struct stat *st)
 	st->st_atime	= GUINT64_FROM_LE(ino->raw_inode->atime);
 	st->st_mtime	= GUINT64_FROM_LE(ino->raw_inode->mtime);
 	st->st_ctime	= GUINT64_FROM_LE(ino->raw_inode->ctime);
+
+	if (debugging)
+		syslog(LOG_DEBUG, "fill_attr: ino %lu, mode %u, uid %u, "
+			"gid %u, size %lu, mtime %lu",
+		       st->st_ino,
+		       st->st_mode,
+		       st->st_uid,
+		       st->st_gid,
+		       st->st_size,
+		       st->st_mtime);
+
+}
+
+static void dbfs_fill_ent(const struct dbfs_inode *ino,
+			  struct fuse_entry_param *ent)
+{
+	memset(ent, 0, sizeof(*ent));
+
+	ent->ino = GUINT64_FROM_LE(ino->raw_inode->ino);
+	ent->generation = GUINT64_FROM_LE(ino->raw_inode->version);
+
+	dbfs_fill_attr(ino, &ent->attr);
+
+	/* these timeouts are just a guess */
+	ent->attr_timeout = 2.0;
+	ent->entry_timeout = 2.0;
 }
 
 static void dbfs_reply_ino(fuse_req_t req, struct dbfs_inode *ino)
@@ -78,6 +94,9 @@ static void dbfs_op_init(void *userdata)
 	struct dbfs *fs;
 	int rc;
 
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_init");
+
 	fs = dbfs_new();
 
 	rc = dbfs_open(fs, DB_RECOVER | DB_CREATE, DB_CREATE, "dbfs");
@@ -85,16 +104,25 @@ static void dbfs_op_init(void *userdata)
 		abort();			/* TODO: improve */
 
 	gfs = fs;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_init");
 }
 
 static void dbfs_op_destroy(void *userdata)
 {
 	struct dbfs *fs = gfs;
 
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_destroy");
+
 	dbfs_close(fs);
 	dbfs_free(fs);
 
 	gfs = NULL;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_destroy");
 }
 
 static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -103,6 +131,10 @@ static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	struct dbfs_inode *ino;
 	int rc;
 	DB_TXN *txn;
+	unsigned long long ino_pr;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_lookup, name=='%s'", name);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -127,12 +159,17 @@ static void dbfs_op_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 	}
 
 	/* send reply */
+	ino_pr = GUINT64_FROM_LE(ino->raw_inode->ino);
 	dbfs_reply_ino(req, ino);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_lookup, ino==%Lu", ino_pr);
 	return;
 
 err_out:
 	txn->abort(txn);
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_lookup, rc==%d", -rc);
 }
 
 static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
@@ -142,6 +179,9 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	struct stat st;
 	int rc;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_getattr, ino==%lu", ino_n);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -171,12 +211,17 @@ static void dbfs_op_getattr(fuse_req_t req, fuse_ino_t ino_n,
 	fuse_reply_attr(req, &st, 2.0);
 
 	dbfs_inode_free(ino);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_getattr, ino==%Lu",
+			(unsigned long long) st.st_ino);
 	return;
 
 err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_getattr, rc==%d", rc);
 }
 
 static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
@@ -187,6 +232,9 @@ static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
 	struct stat st;
 	int rc, dirty = 0;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_setattr, ino==%lu", ino_n);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -243,6 +291,9 @@ static void dbfs_op_setattr(fuse_req_t req, fuse_ino_t ino_n,
 	dbfs_fill_attr(ino, &st);
 	dbfs_inode_free(ino);
 	fuse_reply_attr(req, &st, 2.0);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_setattr, ino==%Lu",
+			(unsigned long long) st.st_ino);
 	return;
 
 err_out_free:
@@ -252,6 +303,8 @@ err_out_txn:
 		txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_setattr, rc==%d", -rc);
 }
 
 static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
@@ -260,6 +313,9 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	DBT val;
 	char *s;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_readlink, ino==%lu", ino);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -282,15 +338,19 @@ static void dbfs_op_readlink(fuse_req_t req, fuse_ino_t ino)
 	/* send reply; use g_strndup to append a trailing null */
 	s = g_strndup(val.data, val.size);
 	fuse_reply_readlink(req, s);
-	g_free(s);
 
 	free(val.data);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_readlink, linktext=='%s'", s);
+	g_free(s);
 	return;
 
 err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_readlink, rc==%d", -rc);
 }
 
 static int dbfs_mode_validate(mode_t mode)
@@ -336,6 +396,10 @@ static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 	struct dbfs_inode *ino;
 	int rc;
 	DB_TXN *txn;
+	unsigned long long ino_pr;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_mknod, name='%s'", name);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -364,13 +428,18 @@ static void dbfs_op_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 		goto err_out;
 	}
 
+	ino_pr = GUINT64_FROM_LE(ino->raw_inode->ino);
 	dbfs_reply_ino(req, ino);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_mknod, ino==%Lu", ino_pr);
 	return;
 
 err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_mknod, rc==%d", -rc);
 }
 
 static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
@@ -379,6 +448,10 @@ static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 	struct dbfs_inode *ino;
 	int rc;
 	DB_TXN *txn;
+	unsigned long long ino_pr;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_mkdir, name=='%s'", name);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -400,20 +473,27 @@ static void dbfs_op_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 		goto err_out;
 	}
 
+	ino_pr = GUINT64_FROM_LE(ino->raw_inode->ino);
 	dbfs_reply_ino(req, ino);
-
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_mkdir, ino==%Lu", ino_pr);
 	return;
 
 err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_mkdir, rc==%d", -rc);
 }
 
 static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 	int rc;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_unlink, name=='%s'", name);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -433,6 +513,8 @@ static void dbfs_op_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 
 out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_unlink, rc==%d", -rc);
 	return;
 
 err_out:
@@ -446,6 +528,11 @@ static void dbfs_op_link(fuse_req_t req, fuse_ino_t ino_n, fuse_ino_t parent,
 	struct dbfs_inode *ino;
 	int rc;
 	DB_TXN *txn;
+	unsigned long long ino_pr;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_link, ino==%lu, newname=='%s'",
+			ino_n, newname);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -472,7 +559,10 @@ static void dbfs_op_link(fuse_req_t req, fuse_ino_t ino_n, fuse_ino_t parent,
 		goto err_out;
 	}
 
+	ino_pr = GUINT64_FROM_LE(ino->raw_inode->ino);
 	dbfs_reply_ino(req, ino);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_link, ino==%Lu", ino_pr);
 	return;
 
 err_out_ino:
@@ -481,11 +571,16 @@ err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_link, rc==%d", -rc);
 }
 
 static void dbfs_op_open(fuse_req_t req, fuse_ino_t ino,
 			 struct fuse_file_info *fi)
 {
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_open, ino==%lu", ino);
+
 	fi->direct_io = 0;
 	fi->keep_cache = 1;
 	fuse_reply_open(req, fi);
@@ -497,6 +592,9 @@ static void dbfs_op_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 	void *buf = NULL;
 	int rc, rc2;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_read, ino==%lu", ino);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -516,12 +614,16 @@ static void dbfs_op_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 
 	fuse_reply_buf(req, buf, rc);
 	free(buf);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_read, rc==%d", rc);
 	return;
 
 err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_read, rc==%d", -rc);
 }
 
 static void dbfs_op_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
@@ -529,6 +631,9 @@ static void dbfs_op_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
 {
 	int rc, rc2;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_write, ino==%lu", ino);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -547,12 +652,16 @@ static void dbfs_op_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
 	}
 
 	fuse_reply_write(req, rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_write, rc==%d", rc);
 	return;
 
 err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_write, error, rc==%d", -rc);
 }
 
 static int dbfs_chk_empty(struct dbfs_dirent *de, void *userdata)
@@ -570,6 +679,9 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	int rc;
 	DBT val;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_rmdir, name=='%s'", name);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -607,12 +719,16 @@ static void dbfs_op_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 	}
 
 	fuse_reply_err(req, 0);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_rmdir, rc==0");
 	return;
 
 out_txn:
 	txn->abort(txn);
 out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_rmdir, rc==%d", -rc);
 }
 
 static void dbfs_op_symlink(fuse_req_t req, const char *link,
@@ -621,6 +737,10 @@ static void dbfs_op_symlink(fuse_req_t req, const char *link,
 	struct dbfs_inode *ino;
 	int rc;
 	DB_TXN *txn;
+	unsigned long long ino_pr;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_symlink, name=='%s'", name);
 
 	if (!g_utf8_validate(link, -1, NULL)) {
 		rc = -EINVAL;
@@ -649,7 +769,10 @@ static void dbfs_op_symlink(fuse_req_t req, const char *link,
 		goto err_out;
 	}
 
+	ino_pr = GUINT64_FROM_LE(ino->raw_inode->ino);
 	dbfs_reply_ino(req, ino);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_symlink, ino==%Lu", ino_pr);
 	return;
 
 err_out_ino:
@@ -658,6 +781,8 @@ err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_symlink, rc==%d", -rc);
 }
 
 static void dbfs_op_rename(fuse_req_t req, fuse_ino_t parent,
@@ -666,6 +791,10 @@ static void dbfs_op_rename(fuse_req_t req, fuse_ino_t parent,
 {
 	int rc;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_rename, name=='%s', newname=='%s'",
+			name, newname);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -690,11 +819,16 @@ out_txn:
 	txn->abort(txn);
 out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_rename, rc==%d", -rc);
 }
 
 static void dbfs_op_fsync (fuse_req_t req, fuse_ino_t ino,
 			   int datasync, struct fuse_file_info *fi)
 {
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_fsync, ino==%lu", ino);
+
 	/* DB should have already sync'd our data for us */
 	fuse_reply_err(req, 0);
 }
@@ -705,6 +839,9 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 	DBT val;
 	int rc;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_opendir, ino==%lu", ino);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -728,12 +865,16 @@ static void dbfs_op_opendir(fuse_req_t req, fuse_ino_t ino,
 
 	/* send reply */
 	fuse_reply_open(req, fi);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_opendir");
 	return;
 
 err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_opendir, rc==%d", -rc);
 }
 
 struct dirbuf {
@@ -786,6 +927,9 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	struct dirbuf b;
 	void *p;
 
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_readdir, ino==%lu", ino);
+
 	/* grab directory contents stored by opendir */
 	p = (void *) (unsigned long) fi->fh;
 
@@ -796,12 +940,18 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	/* send reply */
 	reply_buf_limited(req, b.p, b.size, off, size);
 	free(b.p);
+
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_readdir");
 }
 
 static void dbfs_op_releasedir(fuse_req_t req, fuse_ino_t ino,
 			       struct fuse_file_info *fi)
 {
 	void *p = (void *) (unsigned long) fi->fh;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_releasedir, ino==%lu", ino);
 
 	/* release directory contents */
 	free(p);
@@ -810,6 +960,9 @@ static void dbfs_op_releasedir(fuse_req_t req, fuse_ino_t ino,
 static void dbfs_op_fsyncdir (fuse_req_t req, fuse_ino_t ino,
 			      int datasync, struct fuse_file_info *fi)
 {
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_fsyncdir, ino==%lu", ino);
+
 	/* DB should have already sync'd our data for us */
 	fuse_reply_err(req, 0);
 }
@@ -820,6 +973,9 @@ static void dbfs_op_statfs(fuse_req_t req)
 	struct statvfs f;
 	struct statfs st;
 	
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_statfs");
+
 	if (statfs(gfs->home, &st) < 0) {
 		fuse_reply_err(req, errno);
 		return;
@@ -849,6 +1005,9 @@ static void dbfs_op_setxattr(fuse_req_t req, fuse_ino_t ino,
 	int rc;
 	DB_TXN *txn;
 
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_setxattr, name=='%s'", name);
+
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
 		rc = -rc;
@@ -872,6 +1031,8 @@ err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_setxattr, rc==%d", -rc);
 }
 
 static void dbfs_op_getxattr(fuse_req_t req, fuse_ino_t ino,
@@ -881,6 +1042,9 @@ static void dbfs_op_getxattr(fuse_req_t req, fuse_ino_t ino,
 	size_t buflen = 0;
 	int rc;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_getxattr, name=='%s'", name);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -914,6 +1078,8 @@ err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_getxattr, rc==%d", -rc);
 }
 
 static void dbfs_op_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
@@ -922,6 +1088,9 @@ static void dbfs_op_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 	void *buf;
 	size_t buflen;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_listxattr, ino==%lu", ino);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -953,6 +1122,8 @@ err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_listxattr, rc==%d", -rc);
 }
 
 static void dbfs_op_removexattr(fuse_req_t req, fuse_ino_t ino,
@@ -960,6 +1131,10 @@ static void dbfs_op_removexattr(fuse_req_t req, fuse_ino_t ino,
 {
 	int rc;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_removexattr, ino==%lu, name=='%s'",
+			ino, name);
 
 	rc = gfs->env->txn_begin(gfs->env, NULL, &txn, 0);
 	if (rc) {
@@ -984,6 +1159,8 @@ err_out_txn:
 	txn->abort(txn);
 err_out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_removexattr, rc==%d", -rc);
 }
 
 static void dbfs_op_access(fuse_req_t req, fuse_ino_t ino_n, int mask)
@@ -993,6 +1170,9 @@ static void dbfs_op_access(fuse_req_t req, fuse_ino_t ino_n, int mask)
 	int rc;
 	guint32 mode, uid, gid;
 	DB_TXN *txn;
+
+	if (debugging)
+		syslog(LOG_DEBUG, "ENTER dbfs_op_access, ino==%lu", ino_n);
 
 	ctx = fuse_req_ctx(req);
 	g_assert(ctx != NULL);
@@ -1035,6 +1215,8 @@ static void dbfs_op_access(fuse_req_t req, fuse_ino_t ino_n, int mask)
 
 out:
 	fuse_reply_err(req, -rc);
+	if (debugging)
+		syslog(LOG_DEBUG, "EXIT dbfs_op_access, rc==%d", -rc);
 	return;
 
 out_txn:
@@ -1083,6 +1265,8 @@ int main(int argc, char *argv[])
 	char *mountpoint;
 	int err = -1;
 	int fd;
+
+	openlog("dbfs", LOG_PID, LOG_LOCAL4);
 
 	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 &&
 	    (fd = fuse_mount(mountpoint, &args)) != -1) {
