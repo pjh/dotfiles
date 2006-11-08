@@ -23,6 +23,7 @@ stamp-h1
 mkdbfs
 dbfs
 dbfsck
+dbdebugfs
 dbfs-config.h*
 libdbfs.a
 

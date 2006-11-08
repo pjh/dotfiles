@@ -6,7 +6,7 @@ INCLUDES	= @GLIB_CFLAGS@ @FUSE_CFLAGS@
 
 noinst_LIBRARIES = libdbfs.a
 
-sbin_PROGRAMS	= dbfs mkdbfs dbfsck
+sbin_PROGRAMS	= dbfs mkdbfs dbfsck dbdebugfs
 
 libdbfs_a_SOURCES = libdbfs.c
 
@@ -18,6 +18,9 @@ mkdbfs_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a
 
 dbfsck_SOURCES	= dbfsck.c
 dbfsck_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a
+
+dbdebugfs_SOURCES = dbdebugfs.c
+dbdebugfs_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a
 
 EXTRA_DIST	= autogen.sh SCHEMA
 
