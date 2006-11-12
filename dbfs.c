@@ -17,7 +17,7 @@
  *
  */
 
-#define FUSE_USE_VERSION 25
+#define FUSE_USE_VERSION 26
 
 #define _BSD_SOURCE
 
@@ -89,7 +89,7 @@ static void dbfs_reply_ino(fuse_req_t req, struct dbfs_inode *ino)
 	dbfs_inode_free(ino);
 }
 
-static void dbfs_op_init(void *userdata)
+static void dbfs_op_init(void *userdata, struct fuse_conn_info *conn)
 {
 	struct dbfs *fs;
 	int rc;
@@ -880,20 +880,27 @@ err_out:
 }
 
 struct dirbuf {
-	char *p;
-	size_t size;
+	char		*p;
+	size_t		size;
 };
 
-/* stock function copied from FUSE template */
-static void dirbuf_add(struct dirbuf *b, const char *name, fuse_ino_t ino)
+struct dirbuf_iter {
+	struct dirbuf	db;
+	fuse_req_t	req;
+};
+
+/* stock function copied from FUSE template (hello_ll.c) */
+static void dirbuf_add(fuse_req_t req, struct dirbuf *b, const char *name,
+		       fuse_ino_t ino)
 {
 	struct stat stbuf;
 	size_t oldsize = b->size;
-	b->size += fuse_dirent_size(strlen(name));
-	b->p = (char *)realloc(b->p, b->size);
+	b->size += fuse_add_direntry(req, NULL, 0, name, NULL, 0);
+	b->p = (char *) realloc(b->p, b->size);
 	memset(&stbuf, 0, sizeof(stbuf));
 	stbuf.st_ino = ino;
-	fuse_add_dirent(b->p + oldsize, name, &stbuf, b->size);
+	fuse_add_direntry(req, b->p + oldsize, b->size - oldsize, name, &stbuf,
+			  b->size);
 }
 
 #ifndef min
@@ -913,12 +920,13 @@ static int reply_buf_limited(fuse_req_t req, const void *buf, size_t bufsize,
 
 static int dbfs_fill_dirbuf(struct dbfs_dirent *de, void *userdata)
 {
-	struct dirbuf *b = userdata;
+	struct dirbuf_iter *di = userdata;
+	struct dirbuf *b = &di->db;
 	char *s;
 
 	/* add dirent to buffer; use g_strndup solely to append nul */
 	s = g_strndup(de->name, GUINT16_FROM_LE(de->namelen));
-	dirbuf_add(b, s, GUINT64_FROM_LE(de->ino));
+	dirbuf_add(di->req, b, s, GUINT64_FROM_LE(de->ino));
 	free(s);
 	return 0;
 }
@@ -926,7 +934,7 @@ static int dbfs_fill_dirbuf(struct dbfs_dirent *de, void *userdata)
 static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 			     off_t off, struct fuse_file_info *fi)
 {
-	struct dirbuf b;
+	struct dirbuf_iter di;
 	void *p;
 
 	if (debugging)
@@ -936,12 +944,12 @@ static void dbfs_op_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 	p = (void *) (unsigned long) fi->fh;
 
 	/* iterate through each dirent, filling dirbuf */
-	memset(&b, 0, sizeof(b));
-	dbfs_dir_foreach(p, dbfs_fill_dirbuf, &b);
+	memset(&di, 0, sizeof(di));
+	dbfs_dir_foreach(p, dbfs_fill_dirbuf, &di);
 
 	/* send reply */
-	reply_buf_limited(req, b.p, b.size, off, size);
-	free(b.p);
+	reply_buf_limited(req, di.db.p, di.db.size, off, size);
+	free(di.db.p);
 
 	if (debugging)
 		syslog(LOG_DEBUG, "EXIT dbfs_op_readdir");
@@ -970,7 +978,7 @@ static void dbfs_op_fsyncdir (fuse_req_t req, fuse_ino_t ino,
 }
 
 #define COPY(x) f.f_##x = st.f_##x
-static void dbfs_op_statfs(fuse_req_t req)
+static void dbfs_op_statfs(fuse_req_t req, fuse_ino_t ino)
 {
 	struct statvfs f;
 	struct statfs st;
@@ -1264,33 +1272,31 @@ static struct fuse_lowlevel_ops dbfs_ops = {
 int main(int argc, char *argv[])
 {
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	struct fuse_chan *ch;
 	char *mountpoint;
 	int err = -1;
-	int fd;
 
 	openlog("dbfs", LOG_PID, LOG_LOCAL4);
 
 	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 &&
-	    (fd = fuse_mount(mountpoint, &args)) != -1) {
+	    (ch = fuse_mount(mountpoint, &args)) != NULL) {
 		struct fuse_session *se;
 
 		se = fuse_lowlevel_new(&args, &dbfs_ops,
 				       sizeof(dbfs_ops), NULL);
 		if (se != NULL) {
 			if (fuse_set_signal_handlers(se) != -1) {
-				struct fuse_chan *ch = fuse_kern_chan_new(fd);
-				if (ch != NULL) {
-					fuse_session_add_chan(se, ch);
-					err = fuse_session_loop(se);
-				}
+				fuse_session_add_chan(se, ch);
+				err = fuse_session_loop(se);
 				fuse_remove_signal_handlers(se);
+				fuse_session_remove_chan(ch);
 			}
 			fuse_session_destroy(se);
 		}
-		close(fd);
+		fuse_unmount(mountpoint, ch);
 	}
-	fuse_unmount(mountpoint);
 	fuse_opt_free_args(&args);
 
 	return err ? 1 : 0;
 }
+
