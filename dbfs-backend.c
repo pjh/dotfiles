@@ -749,8 +749,8 @@ static gboolean is_null_id(const dbfs_blk_id_t *id)
 	return is_zero_buf(id, DBFS_BLK_ID_LEN);
 }
 
-static int dbfs_ext_read(DB_TXN *txn, const dbfs_blk_id_t *id, void **buf,
-			 size_t *buflen)
+static int dbfs_ext_read(DB_TXN *txn, const dbfs_blk_id_t *id, void *buf,
+			 unsigned int offset, size_t *buflen)
 {
 	DBT key, val;
 	int rc;
@@ -760,7 +760,11 @@ static int dbfs_ext_read(DB_TXN *txn, const dbfs_blk_id_t *id, void **buf,
 	key.size = DBFS_BLK_ID_LEN;
 
 	memset(&val, 0, sizeof(val));
-	val.flags = DB_DBT_MALLOC;
+	val.data = buf;
+	val.ulen = *buflen;
+	val.dlen = *buflen;
+	val.doff = offset;
+	val.flags = DB_DBT_USERMEM | DB_DBT_PARTIAL;
 
 	rc = gfs->data->get(gfs->data, txn, &key, &val, 0);
 	if (rc == DB_NOTFOUND)
@@ -768,7 +772,6 @@ static int dbfs_ext_read(DB_TXN *txn, const dbfs_blk_id_t *id, void **buf,
 	if (rc)
 		return rc;
 
-	*buf = val.data;
 	*buflen = val.size;
 	return 0;
 }
@@ -806,25 +809,21 @@ int dbfs_read(DB_TXN *txn, guint64 ino_n, guint64 off, size_t read_req_size,
 		if (is_null_id(&ext->id)) {
 			memset(buf + pos, 0, ext->len);
 		} else {
-			void *frag;
-			size_t fraglen;
+			size_t fraglen = ext->len;
 
-			rc = dbfs_ext_read(txn, &ext->id, &frag, &fraglen);
+			rc = dbfs_ext_read(txn, &ext->id, buf + pos,
+					   ext->off, &fraglen);
 			if (rc) {
 				free(buf);
 				buf = NULL;
 				goto out_list;
 			}
-			if ((ext->off + ext->len) > fraglen) {
-				free(frag);
+			if (fraglen != ext->len) {
 				free(buf);
 				buf = NULL;
 				rc = -EINVAL;
 				goto out_list;
 			}
-
-			memcpy(buf + pos, frag + ext->off, ext->len);
-			free(frag);
 		}
 
 		pos += ext->len;
