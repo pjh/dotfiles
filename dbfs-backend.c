@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
+#include <syslog.h>
 #include <glib.h>
 #include <db.h>
 #include <openssl/sha.h>
@@ -960,14 +961,14 @@ static int dbfs_inode_realloc(struct dbfs_inode *ino,
 			      unsigned int new_n_extents)
 {
 	struct dbfs_raw_inode *new_raw;
-	size_t new_size = sizeof(struct dbfs_inode) +
+	size_t new_size = sizeof(struct dbfs_raw_inode) +
 		(sizeof(struct dbfs_extent) * new_n_extents);
 
 	new_raw = g_malloc0(new_size);
 	if (!new_raw)
 		return -ENOMEM;
 
-	memcpy(new_raw, ino->raw_inode, MIN(new_size, ino->raw_ino_size));
+	memcpy(new_raw, ino->raw_inode, ino->raw_ino_size);
 
 	free(ino->raw_inode);
 	ino->raw_inode = new_raw;
@@ -1059,25 +1060,40 @@ int dbfs_write(DB_TXN *txn, guint64 ino_n, guint64 off, const void *buf,
 	struct dbfs_extent ext;
 	struct dbfs_inode *ino;
 	int rc;
-	guint64 i_size;
+	guint64 i_size, old_i_size;
 
 	rc = dbfs_inode_read(txn, ino_n, &ino);
 	if (rc)
 		return rc;
 
+	old_i_size = i_size = GUINT64_FROM_LE(ino->raw_inode->size);
+
+	if (debugging)
+		syslog(LOG_DEBUG, "dbfs_write: ino %Lu, off %Lu, len %zu, i_size %Lu",
+		       (unsigned long long) ino_n,
+		       (unsigned long long) off,
+		       buflen,
+		       (unsigned long long) i_size);
+
+	if ((0xffffffffffffffffULL - off) < buflen)
+		return -EINVAL;
+
 	rc = dbfs_write_buf(txn, buf, buflen, &ext);
 	if (rc)
 		goto out;
 
-	i_size = GUINT64_FROM_LE(ino->raw_inode->size);
-
-	if ((off != i_size) && ((off + buflen) > i_size)) {
+	if (off > i_size) {
 		rc = dbfs_inode_resize(txn, ino, off + 1);
 		if (rc)
 			goto err_out;
 	}
 
+	/* read again; it may have changed after calling dbfs_inode_resize() */
 	i_size = GUINT64_FROM_LE(ino->raw_inode->size);
+
+	if (debugging && (i_size != old_i_size))
+		syslog(LOG_DEBUG, "dbfs_write: i_size updated to %Lu",
+		       (unsigned long long) i_size);
 
 	/* append */
 	if (off == i_size) {
@@ -1091,10 +1107,14 @@ int dbfs_write(DB_TXN *txn, guint64 ino_n, guint64 off, const void *buf,
 
 		g_assert(is_null_id(&ino->raw_inode->blocks[idx].id));
 		memcpy(&ino->raw_inode->blocks[idx], &ext, sizeof(ext));
+
+		goto out_write;
 	}
 
 	/* FIXME: update data in middle of file */
+	syslog(LOG_ERR, "dbfs_write: should be updating data in middle of file!");
 
+out_write:
 	rc = dbfs_inode_write(txn, ino);
 	if (rc == 0)
 		rc = buflen;
