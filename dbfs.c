@@ -21,6 +21,7 @@
 
 #define _BSD_SOURCE
 
+#include "dbfs-config.h"
 #include <fuse_lowlevel.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,7 +33,7 @@
 #include <db.h>
 #include "dbfs.h"
 
-int debugging = 0;
+int debugging = 1;
 
 static void dbfs_fill_attr(const struct dbfs_inode *ino, struct stat *st)
 {
@@ -107,8 +108,7 @@ static void dbfs_op_init(void *userdata, struct fuse_conn_info *conn)
 
 	gfs = fs;
 
-	if (debugging)
-		syslog(LOG_DEBUG, "EXIT dbfs_op_init");
+	syslog(LOG_INFO, PACKAGE_STRING " initialized");
 }
 
 static void dbfs_op_destroy(void *userdata)
