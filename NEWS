@@ -1,7 +1,10 @@
 
-Version 0.6 -- Not yet released
+Version 0.6 -- December 7, 2006
 
-- ...
+- Red Hat should have been listed in copyrights
+- Fix a memory corruption bug, preventing useful use of the fs
+- read operation is less expensive
+- updated to FUSE 2.6.0
 
 Version 0.5 -- November 8, 2006
 

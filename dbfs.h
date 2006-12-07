@@ -2,7 +2,9 @@
 #define __DBFS_H__
 
 /*
- * Copyright 2006 Jeff Garzik <jgarzik@pobox.com>
+ * Maintained by Jeff Garzik <jgarzik@pobox.com>
+ *
+ * Copyright 2006 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
