@@ -22,5 +22,5 @@ dbfsck_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a
 dbdebugfs_SOURCES = dbdebugfs.c
 dbdebugfs_LDADD	= @GLIB_LIBS@ @DB_LIBS@ libdbfs.a
 
-EXTRA_DIST	= autogen.sh SCHEMA
+EXTRA_DIST	= autogen.sh SCHEMA BUGS
 

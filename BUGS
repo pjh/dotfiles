@@ -1,0 +1,12 @@
+
+- No documentation on how to set up a dbfs filesystem.
+
+- Updating the middle of a file will cause data corruption (creating
+  from scratch, or appending, should work fine)
+
+- Directories are read and written in their entirety, which is nice
+  for small directories but punishingly slow for large directories.
+
+- Long term, we only want to store metadata in DB, not file data as
+  well.
+

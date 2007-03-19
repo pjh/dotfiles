@@ -6,9 +6,20 @@ git://git.kernel.org/pub/scm/fs/fuse/dbfs.git
 Software home:
 http://www.kernel.org/pub/linux/kernel/people/jgarzik/fs/
 
+git repository:
+git://git.kernel.org/pub/scm/fs/fuse/dbfs.git
+
 Build (and probably runtime) dependencies:
 * GLib 2.x
 * DB 4.x
 * FUSE
 * OpenSSL, or compatible libcrypto (for SHA1)
+
+Other documentation to read:
+AUTHORS		List of primary program authors
+BUGS		List of problems we need to fix
+COPYING		Software license (GPL)
+INSTALL		Generic GNU autotools software installation instructions
+NEWS		Overview of per-release changes
+SCHEMA		Database data structure layout
 
