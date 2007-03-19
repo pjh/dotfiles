@@ -1,4 +1,8 @@
 
+Version 0.7 -- March 19, 2007
+
+- Fix lack of releasedir FUSE reply
+
 Version 0.6 -- December 7, 2006
 
 - Red Hat should have been listed in copyrights
