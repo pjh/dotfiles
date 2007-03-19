@@ -967,6 +967,8 @@ static void dbfs_op_releasedir(fuse_req_t req, fuse_ino_t ino,
 
 	/* release directory contents */
 	free(p);
+
+	fuse_reply_err(req, 0);
 }
 
 static void dbfs_op_fsyncdir (fuse_req_t req, fuse_ino_t ino,
