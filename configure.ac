@@ -42,7 +42,7 @@ dnl AC_TYPE_PID_T
 dnl -----------------------------
 dnl Checks for required libraries
 dnl -----------------------------
-AC_CHECK_LIB(db-4.3, db_create, DB_LIBS=-ldb-4.3, exit 1)
+AC_CHECK_LIB(db-4.5, db_create, DB_LIBS=-ldb-4.5, exit 1)
 AC_CHECK_LIB(crypto, SHA1_Update, CRYPTO_LIBS=-lcrypto, exit 1)
 
 dnl -------------------------------------
