@@ -19,6 +19,7 @@
  *
  */
 
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -53,24 +54,31 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 	rc = db->set_pagesize(db, page_size);
 	if (rc) {
 		db->err(db, rc, "db->set_pagesize");
-		return -EIO;
+		rc = -EIO;
+		goto err_out;
 	}
 
 	/* fix everything as little endian */
 	rc = db->set_lorder(db, 1234);
 	if (rc) {
 		db->err(db, rc, "db->set_lorder");
-		return -EIO;
+		rc = -EIO;
+		goto err_out;
 	}
 
 	rc = db->open(db, NULL, name, NULL, DB_HASH,
-		      DB_AUTO_COMMIT | flags, 0666);
+		      DB_AUTO_COMMIT | flags, S_IRUSR | S_IWUSR);
 	if (rc) {
 		db->err(db, rc, "db->open");
-		return -EIO;
+		rc = -EIO;
+		goto err_out;
 	}
 
 	return 0;
+
+err_out:
+	db->close(db, 0);
+	return rc;
 }
 
 int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
@@ -117,7 +125,7 @@ int dbfs_open(struct dbfs *fs, unsigned int env_flags, unsigned int flags,
 	/* init DB transactional environment, stored in directory db_home */
 	rc = fs->env->open(fs->env, db_home,
 			  DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL |
-			  DB_INIT_TXN | env_flags, 0666);
+			  DB_INIT_TXN | env_flags, S_IRUSR | S_IWUSR);
 	if (rc) {
 		fs->env->err(fs->env, rc, "fs->env->open");
 		goto err_out;
