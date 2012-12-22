@@ -1,0 +1,8 @@
+[color]
+	ui = auto
+[user]
+	email = pjh@cs.washington.edu
+	name = Peter Hornyack
+[core]
+	autocrlf = false
+	filemode = false
