@@ -22,3 +22,5 @@ fi
 #		trap "kill $SSH_AGENT_PID" 0
 #fi
 
+screen -ls
+
