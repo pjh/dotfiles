@@ -21,17 +21,30 @@ LD_RUN_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export
 LD_LIBRARY_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_LIBRARY_PATH
 
 # A bunch of the stuff here was copied from
-# https://github.com/thobbs/dotfiles/blob/master/.bashrc:
+# https://github.com/thobbs/dotfiles/blob/master/.bashrc; many of them come
+# from the default .bashrc with Ubuntu.
 export TERM=xterm-256color
 
 # Don't put duplicate lines in the history, and don't put command lines
 # that start with a space into the history. See bash(1) for more options.
 HISTCONTROL=ignoredups:ignorespace
-#HISTSIZE=2000
-#HISTFILESIZE=5000
+HISTSIZE=2000
+HISTFILESIZE=5000
+
+# append to the history file, don't overwrite it
+shopt -s histappend
+
+# check the window size after each command and, if necessary,
+# update the values of LINES and COLUMNS.
+shopt -s checkwinsize
 
 # make less more friendly for non-text input files, see lesspipe(1)
 [ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+# set variable identifying the chroot you work in (used in the prompt below)
+if [ -z "$debian_chroot" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
 
 # set a fancy prompt (non-color, unless we know we "want" color)
 case "$TERM" in
@@ -55,7 +68,7 @@ if [ -n "$force_color_prompt" ]; then
 fi
 
 if [ "$color_prompt" = yes ]; then
-	PS1='\[\e[0;34m\]\w \$ \[\e[0;37m\]'
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 else
 	PS1='\w \$ '
 fi
@@ -78,13 +91,6 @@ fi
 export EDITOR=vim
 export CSCOPE_EDITOR=vim
 
-if [[ -n "$is_syslab" ]]; then
-	xmodmap $HOME/.Xmodmap > /dev/null 2>&1
-	$HOME/bin/trackball.sh
-fi
-# man ssh-agent; http://www.thegeekstuff.com/2008/06/perform-ssh-and-scp-without-entering-password-on-openssh/
-#eval `ssh-agent`
-
 # enable color support of ls and also add handy aliases
 if [ -x /usr/bin/dircolors ]; then
 	test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
@@ -93,6 +99,13 @@ if [ -x /usr/bin/dircolors ]; then
 	alias fgrep='fgrep --color=auto'
 	alias egrep='egrep --color=auto'
 fi
+
+if [[ -n "$is_syslab" ]]; then
+	xmodmap $HOME/.Xmodmap > /dev/null 2>&1
+	$HOME/bin/trackball.sh
+fi
+# man ssh-agent; http://www.thegeekstuff.com/2008/06/perform-ssh-and-scp-without-entering-password-on-openssh/
+#eval `ssh-agent`
 
 #############################################################################
 #Both the ~/.bashrc and ~/.bash_profile are scripts that might be executed when bash is invoked. The ~/.bashrc file gets executed when you run bash using an interactive shell that is not a login shell. The ~/.bash_profile only gets executed during a login shell. What does this all mean? The paragraphs below explains interactive shells, login shells, .bashrc, .bash_profile and other bash scripts that are executed during login.
