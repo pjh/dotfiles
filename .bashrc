@@ -1,6 +1,6 @@
 # ~/.bashrc: executed by bash(1) for non-login shells.
 # Commands that affect only login shells should go in .bash_profile.
-# This script should NOT output to the screen!
+# This script should NOT output to the screen.
 
 # If not running interactively, don't do anything
 [ -z "$PS1" ] && return
