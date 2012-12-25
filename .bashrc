@@ -6,11 +6,14 @@
 [ -z "$PS1" ] && return
 
 [[ $HOSTNAME == "burrard" ]] && is_syslab=yes
+[[ $HOSTNAME == "PJHs-MacBook.local" ]] && is_mac=yes
 
 # Set paths:
 PATH=$HOME/bin:$HOME/usr/bin:$HOME/scripts:$HOME/installations/javacc-5.0/bin:$HOME/android-sdk-linux_x86/tools:$PATH
 if [[ -n "$is_syslab" ]]; then
 	export PATH=$PATH:/scratch/pjh/bin:/scratch/pjh/usr/bin:/scratch/pjh/parsec-2.1/bin:/scratch/pjh/NX/bin:/scratch/pjh/bin/depot_tools
+elif [[ -n "$is_mac" ]]; then
+	export PATH=/opt/local/bin:/opt/local/sbin:/Library/PostgreSQL/9.0/bin:$PATH
 fi
 export PATH
 CLASSPATH=$HOME/java/crawler4j-2.6.1/*:$HOME/java/lib/*; export CLASSPATH
@@ -95,6 +98,11 @@ export CSCOPE_EDITOR=vim
 if [ -x /usr/bin/dircolors ]; then
 	test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
 	alias ls='ls --color=auto'
+	alias grep='grep --color=auto'
+	alias fgrep='fgrep --color=auto'
+	alias egrep='egrep --color=auto'
+elif [[ -n "$is_mac" ]]; then
+	alias ls='ls -G'
 	alias grep='grep --color=auto'
 	alias fgrep='fgrep --color=auto'
 	alias egrep='egrep --color=auto'
