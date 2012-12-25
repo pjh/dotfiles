@@ -100,6 +100,7 @@ if [ -x /usr/bin/dircolors ]; then
 	alias egrep='egrep --color=auto'
 fi
 
+# Configure Logitech trackball:
 if [[ -n "$is_syslab" ]]; then
 	xmodmap $HOME/.Xmodmap > /dev/null 2>&1
 	$HOME/bin/trackball.sh
