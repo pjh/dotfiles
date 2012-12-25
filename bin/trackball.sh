@@ -4,7 +4,7 @@
 
 dev="Logitech USB Trackball"
 we="Evdev Wheel Emulation"
-# Right-handed:
+# Right-handed: 
 #xinput set-int-prop "$dev" "$we Button" 8 8
 # Left-handed:
 xinput set-int-prop "$dev" "$we Button" 8 9 > /dev/null 2>&1
