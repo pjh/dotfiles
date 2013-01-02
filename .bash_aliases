@@ -69,7 +69,7 @@ function ssh-sampa-X {
 
 # git:
 function git-status {
-	git status $@
+	git status $@ | vi -R -
 }
 function git-diff-unstaged {
 	#git diff $@ | vi -R -
