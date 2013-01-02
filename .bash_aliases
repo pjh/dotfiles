@@ -49,6 +49,12 @@ function ssh-forkbomb {
 function ssh-attu {
 	ssh pjh@attu.cs.washington.edu
 }
+function ssh-vole {
+	ssh pjh@vole.cs.washington.edu
+}
+function ssh-echo {
+	ssh pjh@echo.cs.washington.edu
+}
 function ssh-intel {
 	ssh phornyac@slsshsvr.seattle.intel-research.net
 }
