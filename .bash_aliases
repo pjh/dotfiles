@@ -49,6 +49,18 @@ function ssh-forkbomb {
 function ssh-attu {
 	ssh pjh@attu.cs.washington.edu
 }
+function ssh-attu1 {
+	ssh pjh@attu1.cs.washington.edu
+}
+function ssh-attu2 {
+	ssh pjh@attu2.cs.washington.edu
+}
+function ssh-attu3 {
+	ssh pjh@attu3.cs.washington.edu
+}
+function ssh-attu4 {
+	ssh pjh@attu4.cs.washington.edu
+}
 function ssh-vole {
 	ssh pjh@vole.cs.washington.edu
 }
