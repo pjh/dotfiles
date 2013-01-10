@@ -6,7 +6,8 @@
 [ -z "$PS1" ] && return
 
 [[ $HOSTNAME == "burrard" ]] && is_syslab=yes
-[[ $HOSTNAME == "PJHs-MacBook.local" || $HOSTNAME == "pjhs-macbook" ]] && is_mac=yes
+#[[ $HOSTNAME == "PJHs-MacBook.local" || $HOSTNAME == "pjhs-macbook" || $HOSTNAME == "pjh-macbook-1.dyn.cs.washington.edu" ]] && is_mac=yes
+[[ $HOSTNAME = pjh* || $HOSTNAME = PJH* ]] && is_mac=yes
 
 # Set paths:
 PATH=$HOME/bin:$HOME/usr/bin:$HOME/scripts:$HOME/installations/javacc-5.0/bin:$HOME/android-sdk-linux_x86/tools:$PATH
