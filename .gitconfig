@@ -7,4 +7,4 @@
 	autocrlf = false
 	filemode = false
 [push]
-	default = simple
+	default = matching
