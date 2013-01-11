@@ -71,8 +71,10 @@ function ssh-intel {
 	ssh phornyac@slsshsvr.seattle.intel-research.net
 }
 function ssh-sampa {
-	echo ssh pjh@sampa-gw.dyn.cs.washington.edu
-	ssh pjh@sampa-gw.dyn.cs.washington.edu
+	#echo ssh pjh@sampa-gw.dyn.cs.washington.edu
+	#ssh pjh@sampa-gw.dyn.cs.washington.edu
+	echo ssh -L 3389:windows:3389 pjh@sampa-gw.dyn.cs.washington.edu
+	ssh -L 3389:windows:3389 pjh@sampa-gw.dyn.cs.washington.edu
 }
 function ssh-sampa-X {
 	echo ssh -X pjh@sampa-gw.dyn.cs.washington.edu
