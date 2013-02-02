@@ -43,6 +43,9 @@ function ssh-burrard {
 function ssh-verbena {
 	ssh pjh@verbena.cs.washington.edu
 }
+function ssh-verbena-X {
+	ssh -X pjh@verbena.cs.washington.edu
+}
 function ssh-forkbomb {
 	ssh pjh@forkbomb.cs.washington.edu
 }
