@@ -46,6 +46,12 @@ function ssh-verbena {
 function ssh-verbena-X {
 	ssh -X pjh@verbena.cs.washington.edu
 }
+function sshfs-verbena {
+	sshfs pjh@verbena.cs.washington.edu: $1 -o compression=yes
+}
+function sshfs-verbena-mac {
+	sshfs pjh@verbena.cs.washington.edu: /Users/Peter/verbena -o compression=yes
+}
 function ssh-forkbomb {
 	ssh pjh@forkbomb.cs.washington.edu
 }
