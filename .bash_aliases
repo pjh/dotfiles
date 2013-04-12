@@ -9,7 +9,7 @@ function source-bashrc {
 	source ~/.bashrc
 }
 function lst {
-	ls -hlt | head -n $1
+	ls -hlt $2 | head -n $1
 }
 function add-path {
 	export PATH=$PATH:`pwd`
