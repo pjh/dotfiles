@@ -92,9 +92,9 @@ function ssh-sampa-X {
 
 # git:
 function git-status {
+	#alias git-stat="git-status"
 	git status $@ | vi -R -
 }
-alias git-stat="git-status"
 function git-diff-unstaged {
 	#git diff $@ | vi -R -
 	git diff $@ > git.diff
