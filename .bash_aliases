@@ -89,6 +89,18 @@ function ssh-sampa-X {
 	echo ssh -X pjh@sampa-gw.cs.washington.edu
 	ssh -X pjh@sampa-gw.cs.washington.edu
 }
+function ssh-agent-start-bg {
+	ssh-agent -s
+	echo "Run the export commands above to set SSH_AUTH_SOCK and SSH_AGENT_PID"
+	echo "Then run ssh-add once from the same shell"
+	echo "Beware, this ssh-agent daemon process will run until you kill it!"
+}
+function ssh-agent-start-fg {
+	ssh-agent -s -d &
+	echo "Run the export commands above to set SSH_AUTH_SOCK and SSH_AGENT_PID"
+	echo "Then run ssh-add once from the same shell"
+	echo "This ssh-agent will run as a background job until this shell is killed"
+}
 
 # git:
 function git-status {
