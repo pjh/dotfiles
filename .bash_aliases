@@ -9,7 +9,7 @@ function source-bashrc {
 	source ~/.bashrc
 }
 function lst {
-	ls -hlt | head -n $1
+	ls -hlt $2 | head -n $1
 }
 function add-path {
 	export PATH=$PATH:`pwd`
@@ -43,6 +43,15 @@ function ssh-burrard {
 function ssh-verbena {
 	ssh pjh@verbena.cs.washington.edu
 }
+function ssh-verbena-X {
+	ssh -X pjh@verbena.cs.washington.edu
+}
+function sshfs-verbena {
+	sshfs pjh@verbena.cs.washington.edu: $1 -o compression=yes
+}
+function sshfs-verbena-mac {
+	sshfs pjh@verbena.cs.washington.edu: /Users/Peter/verbena -o compression=yes
+}
 function ssh-forkbomb {
 	ssh pjh@forkbomb.cs.washington.edu
 }
@@ -71,21 +80,33 @@ function ssh-intel {
 	ssh phornyac@slsshsvr.seattle.intel-research.net
 }
 function ssh-sampa {
-	echo ssh pjh@sampa-gw.dyn.cs.washington.edu
-	ssh pjh@sampa-gw.dyn.cs.washington.edu
-	#echo ssh -L 3389:windows:3389 pjh@sampa-gw.dyn.cs.washington.edu
-	#ssh -L 3389:windows:3389 pjh@sampa-gw.dyn.cs.washington.edu
+	echo ssh pjh@sampa-gw.cs.washington.edu
+	ssh pjh@sampa-gw.cs.washington.edu
+	#echo ssh -L 3389:windows:3389 pjh@sampa-gw.cs.washington.edu
+	#ssh -L 3389:windows:3389 pjh@sampa-gw.cs.washington.edu
 }
 function ssh-sampa-X {
-	echo ssh -X pjh@sampa-gw.dyn.cs.washington.edu
-	ssh -X pjh@sampa-gw.dyn.cs.washington.edu
+	echo ssh -X pjh@sampa-gw.cs.washington.edu
+	ssh -X pjh@sampa-gw.cs.washington.edu
+}
+function ssh-agent-start-bg {
+	ssh-agent -s
+	echo "Run the export commands above to set SSH_AUTH_SOCK and SSH_AGENT_PID"
+	echo "Then run ssh-add once from the same shell"
+	echo "Beware, this ssh-agent daemon process will run until you kill it!"
+}
+function ssh-agent-start-fg {
+	ssh-agent -s -d &
+	echo "Run the export commands above to set SSH_AUTH_SOCK and SSH_AGENT_PID"
+	echo "Then run ssh-add once from the same shell"
+	echo "This ssh-agent will run as a background job until this shell is killed"
 }
 
 # git:
 function git-status {
+	#alias git-stat="git-status"
 	git status $@ | vi -R -
 }
-alias git-stat="git-status"
 function git-diff-unstaged {
 	#git diff $@ | vi -R -
 	git diff $@ > git.diff
