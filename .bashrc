@@ -5,7 +5,8 @@
 # If not running interactively, don't do anything
 [ -z "$PS1" ] && return
 
-[[ $HOSTNAME == "burrard" ]] && is_syslab=yes
+[[ $HOME == "/homes/sys/pjh" ]] && is_syslab=yes
+[[ $HOME == "/sampa/home/pjh" ]] && is_sampa=yes
 #[[ $HOSTNAME == "PJHs-MacBook.local" || $HOSTNAME == "pjhs-macbook" || $HOSTNAME == "pjh-macbook-1.dyn.cs.washington.edu" ]] && is_mac=yes
 [[ $HOSTNAME = pjh* || $HOSTNAME = PJH* ]] && is_mac=yes
 
@@ -13,17 +14,19 @@
 PATH=$HOME/bin:$HOME/usr/bin:$HOME/scripts:$HOME/installations/javacc-5.0/bin:$HOME/android-sdk-linux_x86/tools:$PATH
 if [[ -n "$is_syslab" ]]; then
 	export PATH=$PATH:/scratch/pjh/bin:/scratch/pjh/usr/bin:/scratch/pjh/parsec-2.1/bin:/scratch/pjh/NX/bin:/scratch/pjh/bin/depot_tools
+	export PYTHONPATH=$HOME/lib/python/site-packages:$PYTHONPATH
 elif [[ -n "$is_mac" ]]; then
 	export PATH=/opt/local/bin:/opt/local/sbin:/Library/PostgreSQL/9.0/bin:$PATH
-	export PYTHONPATH=/opt/local/lib/python2.7/site-packages/:$PYTHONPATH
+	export PYTHONPATH=/opt/local/lib/python2.7/site-packages:$PYTHONPATH
+elif [[ -n "$is_sampa" ]]; then
+	export PYTHONPATH=$HOME/lib/python:$PYTHONPATH
 fi
 export PATH
 CLASSPATH=$HOME/java/crawler4j-2.6.1/*:$HOME/java/lib/*; export CLASSPATH
     # Note to self: got classpath problems? Look at the javac man page!
-PYTHONPATH=$HOME/lib/python/site-packages/; export PYTHONPATH
 PKG_CONFIG_PATH=$HOME/lib/pkgconfig; export PKG_CONFIG_PATH
-LD_RUN_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_RUN_PATH
-LD_LIBRARY_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_LIBRARY_PATH
+#LD_RUN_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_RUN_PATH
+#LD_LIBRARY_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_LIBRARY_PATH
 
 # A bunch of the stuff here was copied from
 # https://github.com/thobbs/dotfiles/blob/master/.bashrc; many of them come
