@@ -135,8 +135,26 @@ function my_cscope1L {
 	> cscope.files
 	time cscope -q -R -b -i cscope.files
 }
+function my_cscope_kernel_files {
+	LNX="."
+	cscope_fname="cscope.files"
+	echo "Writing list of files to scope/tag at $LNX/$cscope_fname"
+	find $LNX                                                                \
+		-path "$LNX/arch/*" ! -path "$LNX/arch/x86*" -prune -o               \
+		-path "$LNX/include/asm-*" ! -path "$LNX/include/asm-generic*"       \
+		                           ! -path "$LNX/include/asm-x86*" -prune -o \
+		-path "$LNX/tmp*" -prune -o                                          \
+		-path "$LNX/Documentation*" -prune -o                                \
+		-path "$LNX/scripts*" -prune -o                                      \
+		-name "*.[chxsS]" -print > $LNX/$cscope_fname
+#		-path "$LNX/include/asm-*" ! -path "$LNX/include/asm-x86*" -prune -o \
+#		-path "$LNX/drivers*" -prune -o                                      \
+}
 function my_cscope_kernel {
-	~/scripts/my_cscope_kernel.sh
+	my_cscope_kernel_files
+	echo "Building cscope database..."
+	time cscope -q -k -b -i cscope.files
+	#~/scripts/my_cscope_kernel.sh
 }
 function my_cscope2 {
 	cscope -q -R -b -i cscope.files
@@ -146,6 +164,12 @@ function my_cscope {
 }
 function my_ctags1 {
 	time ctags -R --fields=+fksnS .
+}
+function my_ctags_kernel {
+	cscope_fname="cscope.files"
+	my_cscope_kernel_files
+	echo "Building ctags database..."
+	time ctags -L $cscope_fname --fields=+fksnS .
 }
 
 # find / grep:
