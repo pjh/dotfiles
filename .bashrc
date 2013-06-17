@@ -3,7 +3,7 @@
 # This script should NOT output to the screen.
 
 # If not running interactively, don't do anything
-[ -z "$PS1" ] && return
+[[ -z "$PS1" ]] && return
 
 [[ $HOME == "/homes/sys/pjh" ]] && is_syslab=yes
 [[ $HOME == "/sampa/home/pjh" ]] && is_sampa=yes
@@ -22,7 +22,7 @@ elif [[ -n "$is_sampa" ]]; then
 	export PYTHONPATH=$HOME/lib/python:$PYTHONPATH
 fi
 export PATH
-CLASSPATH=$HOME/java/crawler4j-2.6.1/*:$HOME/java/lib/*; export CLASSPATH
+#CLASSPATH=$HOME/java/crawler4j-2.6.1/*:$HOME/java/lib/*; export CLASSPATH
     # Note to self: got classpath problems? Look at the javac man page!
 PKG_CONFIG_PATH=$HOME/lib/pkgconfig; export PKG_CONFIG_PATH
 #LD_RUN_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_RUN_PATH

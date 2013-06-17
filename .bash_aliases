@@ -220,6 +220,14 @@ function svn-stat-show-updates {
 		# http://svnbook.red-bean.com/nightly/en/svn.ref.svn.c.status.html
 }
 
+# make:
+function make-bg {
+	time make &> make.out &
+}
+function make-tail {
+	tail -F make.out
+}
+
 # Android:
 function java-set-altern-5 {
 	sudo update-java-alternatives -s java-1.5.0-sun
