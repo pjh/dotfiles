@@ -5,6 +5,12 @@ alias vi='/usr/bin/vim'
 
 # Functions for new commands:
 #   Use $@ to get arguments within function body:
+function unset-LD-vars {
+	unset LD_LIBRARY_PATH
+	unset LD_RUN_PATH
+	unset LD_DEBUG
+	unset LD_PRELOAD
+}
 function source-bashrc {
 	source ~/.bashrc
 }
@@ -91,12 +97,14 @@ function ssh-sampa-X {
 }
 function ssh-agent-start-bg {
 	ssh-agent -s
+	echo "ssh-add"
 	echo "Run the export commands above to set SSH_AUTH_SOCK and SSH_AGENT_PID"
 	echo "Then run ssh-add once from the same shell"
 	echo "Beware, this ssh-agent daemon process will run until you kill it!"
 }
 function ssh-agent-start-fg {
 	ssh-agent -s -d &
+	echo "ssh-add"
 	echo "Run the export commands above to set SSH_AUTH_SOCK and SSH_AGENT_PID"
 	echo "Then run ssh-add once from the same shell"
 	echo "This ssh-agent will run as a background job until this shell is killed"
@@ -135,6 +143,11 @@ function my_cscope1L {
 	> cscope.files
 	time cscope -q -R -b -i cscope.files
 }
+function my_cscope_pin {
+	find . -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \
+	-o -name "*.PH" -o -name "*.PLH" > cscope.files
+	time cscope -q -R -b -i cscope.files
+}
 function my_cscope_kernel_files {
 	LNX="."
 	cscope_fname="cscope.files"
@@ -160,10 +173,14 @@ function my_cscope2 {
 	cscope -q -R -b -i cscope.files
 }
 function my_cscope {
-	cscope -p4 -C -d
+	cscope -p4 -d
 }
 function my_ctags1 {
 	time ctags -R --fields=+fksnS .
+}
+function my_ctags_pin {
+	#time ctags -R -h ".h.H.hh.hpp.hxx.h++.inc.def.PH.PLH.TLH" --fields=+fksnS .
+	time ctags -L cscope.files --fields=+fksnS .
 }
 function my_ctags_kernel {
 	cscope_fname="cscope.files"

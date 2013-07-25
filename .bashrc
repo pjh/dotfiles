@@ -7,6 +7,7 @@
 
 [[ $HOME == "/homes/sys/pjh" ]] && is_syslab=yes
 [[ $HOME == "/sampa/home/pjh" ]] && is_sampa=yes
+[[ $HOME == "/home/pjh" ]] && is_verbena=yes
 #[[ $HOSTNAME == "PJHs-MacBook.local" || $HOSTNAME == "pjhs-macbook" || $HOSTNAME == "pjh-macbook-1.dyn.cs.washington.edu" ]] && is_mac=yes
 [[ $HOSTNAME = pjh* || $HOSTNAME = PJH* ]] && is_mac=yes
 
