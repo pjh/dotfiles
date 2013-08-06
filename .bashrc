@@ -28,8 +28,8 @@ export PATH
 PKG_CONFIG_PATH=$HOME/lib/pkgconfig; export PKG_CONFIG_PATH
 #LD_RUN_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_RUN_PATH
 #LD_LIBRARY_PATH=$HOME/lib:$HOME/research/nvm/novaOS/keyvalue/src/leveldb/lib; export LD_LIBRARY_PATH
-LD_RUN_PATH=$HOME/lib; export LD_RUN_PATH
-LD_LIBRARY_PATH=$HOME/lib; export LD_LIBRARY_PATH
+#LD_RUN_PATH=$HOME/lib; export LD_RUN_PATH
+#LD_LIBRARY_PATH=$HOME/lib; export LD_LIBRARY_PATH
 
 # A bunch of the stuff here was copied from
 # https://github.com/thobbs/dotfiles/blob/master/.bashrc; many of them come

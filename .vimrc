@@ -1,6 +1,8 @@
 " disable vi compatibility (emulation of old bugs)
 set nocompatible
 
+"set nowrap
+
 " Clear screen on exit:
 "au VimLeave * :!clear
 

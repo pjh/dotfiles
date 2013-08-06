@@ -5,6 +5,9 @@ alias vi='/usr/bin/vim'
 
 # Functions for new commands:
 #   Use $@ to get arguments within function body:
+function cd-tracing {
+	cd /sys/kernel/debug/tracing
+}
 function unset-LD-vars {
 	unset LD_LIBRARY_PATH
 	unset LD_RUN_PATH
@@ -243,6 +246,12 @@ function make-bg {
 }
 function make-tail {
 	tail -F make.out
+}
+function ant-bg {
+	time ant &> ant.out &
+}
+function ant-tail {
+	tail -F ant.out
 }
 
 # Android:

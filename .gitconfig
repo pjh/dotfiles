@@ -6,5 +6,6 @@
 [core]
 	autocrlf = false
 	filemode = false
+	deltaBaseCacheLimit = 1G
 [push]
 	default = matching
