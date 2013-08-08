@@ -11,6 +11,21 @@ set nocompatible
 filetype plugin on
 filetype on
 
+" http://vim.wikia.com/wiki/Indenting_source_code
+set tabstop=4        " tab width is 4 spaces
+set shiftwidth=4     " indent also with 4 spaces
+set noexpandtab      " expand tabs to spaces?
+set noautoindent
+filetype plugin indent on
+
+" The best way to get filetype-specific indentation is to use ":filetype plugin
+" indent on" in your vimrc. Then you can specify things like
+" .":setl sw=4 sts=4 et"
+" in .vim/ftplugin/c.vim, for example, without having to make those global
+" for all
+" files being edited and other non-C type syntaxes will get indented correctly,
+" too (even lisps).
+
 "Another thing that works out of the box: Press SHIFT-K to lookup the function
 "under cursor in the manpage – that’s the integrated help 
 
@@ -70,15 +85,6 @@ let g:ctags_regenerate=0
 " Set syntax on
 syntax on
 
-" Indent automatically depending on filetype
-filetype indent on
-set autoindent
-" The best way to get filetype-specific indentation is to use ":filetype plugin
-" indent on" in your vimrc. Then you can specify things like ":setl sw=4 sts=4 et"
-" in .vim/ftplugin/c.vim, for example, without having to make those global for all
-" files being edited and other non-C type syntaxes will get indented correctly,
-" too (even lisps).
-
 " Case sensitive search if pattern contains an uppercase letter, otherwise not
 set ignorecase
 set smartcase
@@ -124,8 +130,8 @@ map <F9> :!make<CR>
 "" use intelligent indentation for C
 "set smartindent
 "" configure tabwidth and insert spaces instead of tabs
-set tabstop=4        " tab width is 4 spaces
-set shiftwidth=4     " indent also with 4 spaces
+"set tabstop=4        " tab width is 4 spaces
+"set shiftwidth=4     " indent also with 4 spaces
 "set expandtab        " expand tabs to spaces
 "" wrap lines at 120 chars. 80 is somewaht antiquated with nowadays displays.
 "set textwidth=120
