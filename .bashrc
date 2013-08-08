@@ -12,7 +12,8 @@
 [[ $HOSTNAME = pjh* || $HOSTNAME = PJH* ]] && is_mac=yes
 
 # Set paths:
-PATH=$HOME/bin:$HOME/usr/bin:$HOME/scripts:$HOME/installations/javacc-5.0/bin:$HOME/android-sdk-linux_x86/tools:$PATH
+PATH=$HOME/bin:$HOME/usr/bin:$HOME/scripts:$PATH
+   #:$HOME/installations/javacc-5.0/bin:$HOME/android-sdk-linux_x86/tools:$PATH
 if [[ -n "$is_syslab" ]]; then
 	export PATH=$PATH:/scratch/pjh/bin:/scratch/pjh/usr/bin:/scratch/pjh/parsec-2.1/bin:/scratch/pjh/NX/bin:/scratch/pjh/bin/depot_tools
 	export PYTHONPATH=$HOME/lib/python:$HOME/lib/python/site-packages:$PYTHONPATH
