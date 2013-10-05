@@ -44,8 +44,14 @@ function trackball-reset {
 function man_html {
 	man --html=google-chrome $@
 }
+function disas {
+	objdump -d $@
+}
 
 # ssh:
+function ssh-seymour {
+	ssh pjh@seymour.cs.washington.edu
+}
 function ssh-burrard {
 	ssh pjh@burrard.cs.washington.edu
 }
