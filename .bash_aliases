@@ -58,6 +58,15 @@ function ssh-burrard {
 function ssh-verbena {
 	ssh pjh@verbena.cs.washington.edu
 }
+function ssh-recycle {
+	ssh pjh@recycle.cs.washington.edu
+}
+function ssh-bicycle {
+	ssh pjh@bicycle.cs.washington.edu
+}
+function ssh-tricycle {
+	ssh pjh@tricycle.cs.washington.edu
+}
 function ssh-verbena-X {
 	ssh -X pjh@verbena.cs.washington.edu
 }
@@ -87,9 +96,6 @@ function ssh-attu4 {
 }
 function ssh-vole {
 	ssh pjh@vole.cs.washington.edu
-}
-function ssh-echo {
-	ssh pjh@echo.cs.washington.edu
 }
 function ssh-intel {
 	ssh phornyac@slsshsvr.seattle.intel-research.net
