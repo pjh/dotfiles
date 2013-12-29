@@ -5,6 +5,10 @@ alias vi='/usr/bin/vim'
 
 # Functions for new commands:
 #   Use $@ to get arguments within function body:
+function viless {
+	# e.g. "grep something somefile | viless"
+	vi -R -
+}
 function cd-tracing {
 	cd /sys/kernel/debug/tracing
 }
