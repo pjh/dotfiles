@@ -55,11 +55,14 @@ set ruler
 "map <F7> gqip
 map <F6> gqip
 
+" Toggle text wrap:
+map <F7> :set wrap!<cr>
+
 " Ctags / taglist stuff:
 " let Tlist_Ctags_Cmd = "/usr/bin/ctags"
 " let Tlist_WinWidth = 50
 map <F4> :TlistToggle<cr>
-map <F7> :CTAGS<cr>
+"map <F7> :CTAGS<cr>
 map <F8> :!ctags -R --fields=+fksnS .<CR>
 "function TagStuff()
 	"http://stackoverflow.com/questions/954273/vim-scripting-preserve-cursor-position-and-screen-view-in-function-call
