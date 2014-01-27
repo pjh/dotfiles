@@ -183,10 +183,9 @@ function my_cscope_kernel_files {
 #		-path "$LNX/drivers*" -prune -o                                      \
 }
 function my_cscope_kernel {
-	my_cscope_kernel_files
-	echo "Building cscope database..."
-	time cscope -q -k -b -i cscope.files
-	#~/scripts/my_cscope_kernel.sh
+	# see comment for "make tags" - kernel's make commands work better than
+	# my old manual cscope/ctags commands.
+	time make cscope
 }
 function my_cscope2 {
 	cscope -q -R -b -i cscope.files
@@ -202,10 +201,12 @@ function my_ctags_pin {
 	time ctags -L cscope.files --fields=+fksnS .
 }
 function my_ctags_kernel {
-	cscope_fname="cscope.files"
-	my_cscope_kernel_files
-	echo "Building ctags database..."
-	time ctags -L $cscope_fname --fields=+fksnS .
+	# "make tags" works better than the old ctags commands I had here -
+	# for example see ClearPageReferenced in fs/proc/task_mmu.c: with
+	# my old ctags commands, no tag was found for this symbol, but a
+	# tag IS created by make tags (this symbol is defined via a PAGEFLAG
+	# macro in include/linux/page-flags.h).
+	time make tags
 }
 
 # find / grep:
