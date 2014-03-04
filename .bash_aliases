@@ -9,6 +9,10 @@ function viless {
 	# e.g. "grep something somefile | viless"
 	vi -R -
 }
+function rsync-pdfpng {
+	rsync -avzr --include="*/" --include="*.pdf" --include="*.png" \
+	--exclude="*" $@
+}
 function cd-tracing {
 	cd /sys/kernel/debug/tracing
 }
