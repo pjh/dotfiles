@@ -62,18 +62,12 @@ map <F7> :set wrap!<cr>
 " let Tlist_Ctags_Cmd = "/usr/bin/ctags"
 " let Tlist_WinWidth = 50
 map <F4> :TlistToggle<cr>
-"map <F7> :CTAGS<cr>
-map <F8> :!ctags -R --fields=+fksnS .<CR>
-"function TagStuff()
-	"http://stackoverflow.com/questions/954273/vim-scripting-preserve-cursor-position-and-screen-view-in-function-call
-"	:mkHml    "set mark k for cursor, mark l for window
-"	:CTAGS    "CTAGS regenerates the 'ctags.vim' database (see below)
-"	:!ctags -R --fields=+fksnS .
-"	:`lzt`k   "restore mark l for window, mark k for cursor
-"endfunction
-"map <F8> :exec TagStuff()<cr>
-"set tags=./tags,./TAGS,tags,TAGS,../tags,../../tags,/usr/include/tags
-set tags=./tags,./TAGS,tags,TAGS,/usr/include/tags
+
+" Whew, ok, this finally works for BOTH regenerating ctags.vim line
+" numbers and regenerating ctags database!
+map <F8> :call GenerateTags()<CR> <bar> :!ctags -R --fields=+fksnS .<CR>
+
+"set tags=./tags,./TAGS,tags,TAGS,/usr/include/tags
 " ~/project/tags
 
 " ctags.vim stuff: http://vim.sourceforge.net/scripts/script.php?script_id=610
