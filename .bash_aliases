@@ -5,6 +5,10 @@ alias vi='/usr/bin/vim'
 
 # Functions for new commands:
 #   Use $@ to get arguments within function body:
+function psc581queue {
+	# To remove printer jobs: lprm -P psc581 <job id>
+	watch -n 2 "lpq -P psc581 -l"
+}
 function viless {
 	# e.g. "grep something somefile | viless"
 	vi -R -
