@@ -7,7 +7,7 @@ alias vi='/usr/bin/vim'
 #   Use $@ to get arguments within function body:
 function psc581queue {
 	# To remove printer jobs: lprm -P psc581 <job id>
-	watch -n 2 "lpq -P psc581 -l"
+	watch -n 2 "lpq -P psc581"
 }
 function viless {
 	# e.g. "grep something somefile | viless"
