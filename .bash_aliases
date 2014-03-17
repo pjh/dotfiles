@@ -17,6 +17,12 @@ function rsync-pdfpng {
 	rsync -avzr --include="*/" --include="*.pdf" --include="*.png" \
 	--exclude="*" $@
 }
+function rsync-compressed {
+	rsync -avzr $@
+}
+function rsync-normal {
+	rsync -avr $@
+}
 function cd-tracing {
 	cd /sys/kernel/debug/tracing
 }
