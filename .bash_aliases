@@ -5,6 +5,10 @@ alias vi='/usr/bin/vim'
 
 # Functions for new commands:
 #   Use $@ to get arguments within function body:
+function psc581queue {
+	# To remove printer jobs: lprm -P psc581 <job id>
+	watch -n 2 "lpq -P psc581"
+}
 function viless {
 	# e.g. "grep something somefile | viless"
 	vi -R -
@@ -12,6 +16,12 @@ function viless {
 function rsync-pdfpng {
 	rsync -avzr --include="*/" --include="*.pdf" --include="*.png" \
 	--exclude="*" $@
+}
+function rsync-compressed {
+	rsync -avzr $@
+}
+function rsync-normal {
+	rsync -avr $@
 }
 function cd-tracing {
 	cd /sys/kernel/debug/tracing
@@ -57,6 +67,9 @@ function disas {
 }
 
 # ssh:
+function ssh-nethack {
+	ssh pjh@nethack.cs.washington.edu
+}
 function ssh-seymour {
 	ssh pjh@seymour.cs.washington.edu
 }
