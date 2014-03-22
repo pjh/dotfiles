@@ -263,7 +263,8 @@ function svn-stat-show-updates {
 
 # make:
 function make-bg {
-	time make &> make.out &
+	echo "make -j2 &> make.out &"
+	time make -j2 &> make.out &
 }
 function make-tail {
 	tail -F make.out
