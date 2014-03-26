@@ -26,6 +26,9 @@ function rsync-normal {
 function cd-tracing {
 	cd /sys/kernel/debug/tracing
 }
+function cd-scratch {
+	cd /scratch/pjh
+}
 function unset-LD-vars {
 	unset LD_LIBRARY_PATH
 	unset LD_RUN_PATH
