@@ -295,8 +295,8 @@ function make-bg {
 		echo "make -j$1 &> make.out &"
 		time make -j$1 &> make.out &
 	else
-		echo "make -j$1 &> make.out &"
-		time make -j$1 &> make.out &
+		echo "make -j2 &> make.out &"
+		time make -j2 &> make.out &
 	fi
 }
 function make-tail {
