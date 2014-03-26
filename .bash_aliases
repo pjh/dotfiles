@@ -281,9 +281,23 @@ function svn-stat-show-updates {
 }
 
 # make:
+#function make-test {
+#	if [[ $# == 1 ]]
+#	then
+#		echo "path 1: $1"
+#	else
+#		echo "path 2"
+#	fi
+#}
 function make-bg {
-	echo "make -j2 &> make.out &"
-	time make -j2 &> make.out &
+	if [[ $# == 1 ]]
+	then
+		echo "make -j$1 &> make.out &"
+		time make -j$1 &> make.out &
+	else
+		echo "make -j$1 &> make.out &"
+		time make -j$1 &> make.out &
+	fi
 }
 function make-tail {
 	tail -F make.out
