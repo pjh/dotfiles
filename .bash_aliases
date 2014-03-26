@@ -67,6 +67,9 @@ function disas {
 }
 
 # ssh:
+function ssh-stjohns {
+	ssh pjh@stjohns.cs.washington.edu
+}
 function ssh-nethack {
 	ssh pjh@nethack.cs.washington.edu
 }
