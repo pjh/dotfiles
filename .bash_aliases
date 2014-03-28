@@ -70,6 +70,9 @@ function disas {
 }
 
 # ssh:
+function ssh-stjohns-X {
+	ssh -X pjh@stjohns.cs.washington.edu
+}
 function ssh-stjohns {
 	ssh pjh@stjohns.cs.washington.edu
 }
