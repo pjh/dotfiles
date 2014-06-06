@@ -16,7 +16,7 @@ PATH=$HOME/bin:$HOME/usr/bin:$HOME/scripts:$PATH
    #:$HOME/installations/javacc-5.0/bin:$HOME/android-sdk-linux_x86/tools:$PATH
 if [[ -n "$is_syslab" ]]; then
 	export PATH=$PATH:/scratch/pjh/bin:/scratch/pjh/usr/bin:/scratch/pjh/parsec-2.1/bin:/scratch/pjh/NX/bin:/scratch/pjh/bin/depot_tools
-	export PYTHONPATH=$HOME/lib/python:$HOME/lib/python/site-packages:$HOME/lib/python2.7:$HOME/lib/python2.7/site-packages:$HOME/lib/python2.6:$HOME/lib/python2.6/site-packages:$PYTHONPATH
+	export PYTHONPATH=/scratch/pjh/lib/python3.3/site-packages/:/scratch/pjh/lib/python3.2/site-packages/:$HOME/lib/python:$HOME/lib/python/site-packages:$HOME/lib/python2.7:$HOME/lib/python2.7/site-packages:$HOME/lib/python2.6:$HOME/lib/python2.6/site-packages:$PYTHONPATH
 elif [[ -n "$is_verbena" ]]; then
 	export PATH=/opt/texbin:$PATH
 elif [[ -n "$is_mac" ]]; then

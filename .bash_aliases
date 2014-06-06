@@ -3,7 +3,9 @@
 # New commands should be added using shell functions, below.
 alias vi='/usr/bin/vim'
 
-# Functions for new commands:
+function running_services {
+	ps -ef | grep -v "grep" | egrep "apache2|mysqld|memcached"
+}
 #   Use $@ to get arguments within function body:
 function psc581queue {
 	# To remove printer jobs: lprm -P psc581 <job id>
