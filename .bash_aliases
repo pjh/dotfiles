@@ -160,6 +160,10 @@ function git-status {
 	#alias git-stat="git-status"
 	git status $@ | vi -R -
 }
+function git-log {
+	git log $@ > git.log
+	vi git.log
+}
 function git-diff-unstaged {
 	#git diff $@ | vi -R -
 	git diff $@ > git.diff
