@@ -3,6 +3,9 @@
 # New commands should be added using shell functions, below.
 alias vi='/usr/bin/vim'
 
+function tail1 {
+	tail -n 1 $@
+}
 function running_services {
 	ps -ef | grep -v "grep" | egrep "apache2|mysqld|memcached"
 }
